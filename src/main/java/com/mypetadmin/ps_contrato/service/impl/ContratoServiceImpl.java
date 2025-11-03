@@ -3,7 +3,9 @@ package com.mypetadmin.ps_contrato.service.impl;
 import com.mypetadmin.ps_contrato.client.EmpresaClient;
 import com.mypetadmin.ps_contrato.dto.ContratoRequestDTO;
 import com.mypetadmin.ps_contrato.dto.ContratoResponseDTO;
+import com.mypetadmin.ps_contrato.exception.ContratoNotFoundException;
 import com.mypetadmin.ps_contrato.exception.EmpresaNaoEncontradaException;
+import com.mypetadmin.ps_contrato.exception.StatusContratoNotFoundException;
 import com.mypetadmin.ps_contrato.mapper.ContratoMapper;
 import com.mypetadmin.ps_contrato.model.Contrato;
 import com.mypetadmin.ps_contrato.model.StatusContrato;
@@ -18,6 +20,7 @@ import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.UUID;
 
 import static com.mypetadmin.ps_contrato.util.GerarNumeroContratoUtil.gerarNumeroContrato;
 
@@ -78,6 +81,22 @@ public class ContratoServiceImpl implements ContratoService {
                 .dataCriacao(LocalDateTime.now())
                 .build();
 
+        contratoRepository.save(contrato);
+
+        return mapper.toResponseDto(contrato);
+    }
+
+    @Override
+    @Transactional
+    public ContratoResponseDTO atualizarStatus(UUID id, Long statusId) {
+        Contrato contrato = contratoRepository.findById(id)
+                .orElseThrow(() -> new ContratoNotFoundException("Contrato com o id " + id + " não foi encontrado"));
+
+        StatusContrato novoStatus = statusContratoRepository.findById(statusId)
+                .orElseThrow(() -> new StatusContratoNotFoundException("Status com o id " + statusId + " não foi encontrado"));
+
+        contrato.setStatus(novoStatus);
+        contrato.setDataAtualizacaoStatus(LocalDateTime.now());
         contratoRepository.save(contrato);
 
         return mapper.toResponseDto(contrato);

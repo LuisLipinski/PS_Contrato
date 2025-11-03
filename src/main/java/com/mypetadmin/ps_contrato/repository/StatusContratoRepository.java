@@ -8,6 +8,6 @@ import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import java.util.Optional;
 import java.util.UUID;
 
-public interface StatusContratoRepository extends JpaRepository<StatusContrato, UUID>, JpaSpecificationExecutor<Contrato> {
+public interface StatusContratoRepository extends JpaRepository<StatusContrato, Long>, JpaSpecificationExecutor<Contrato> {
     Optional<StatusContrato> findByStatusName(String aguardandoPagamento);
 }

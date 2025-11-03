@@ -19,9 +19,27 @@ import java.util.Map;
 public class GlobalExceptionHandler {
 
     @ExceptionHandler(EmpresaNaoEncontradaException.class)
-    public ResponseEntity<String> handleEmpresaNaoEncontrada(EmpresaNaoEncontradaException ex) {
+    public ResponseEntity<Map<String, String>> handleEmpresaNaoEncontrada(EmpresaNaoEncontradaException ex) {
+        Map<String, String> error = new HashMap<>();
+        error.put("error", ex.getMessage());
         log.warn("Empresa não encontrada: {}", ex.getMessage());
-        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(ex.getMessage());
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).contentType(MediaType.APPLICATION_JSON).body(error);
+    }
+
+    @ExceptionHandler(ContratoNotFoundException.class)
+    public ResponseEntity<Map<String, String>> handleContratoNotFound(ContratoNotFoundException ex) {
+        Map<String, String> error = new HashMap<>();
+        error.put("error", ex.getMessage());
+        log.warn("Contrato não encontrado: {}", ex.getMessage());
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).contentType(MediaType.APPLICATION_JSON).body(error);
+    }
+
+    @ExceptionHandler(StatusContratoNotFoundException.class)
+    public ResponseEntity<Map<String, String>> handleStatusContratoNotFound(StatusContratoNotFoundException ex) {
+        Map<String, String> error = new HashMap<>();
+        error.put("error", ex.getMessage());
+        log.warn("Status não encontrado: {}", ex.getMessage());
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).contentType(MediaType.APPLICATION_JSON).body(error);
     }
 
 
