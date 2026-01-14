@@ -7,6 +7,7 @@ import com.mypetadmin.ps_contrato.enums.StatusContratoId;
 import com.mypetadmin.ps_contrato.exception.ContratoNotFoundException;
 import com.mypetadmin.ps_contrato.exception.EmpresaNaoEncontradaException;
 import com.mypetadmin.ps_contrato.exception.StatusContratoNotFoundException;
+import com.mypetadmin.ps_contrato.exception.TransicaoStatusInvalidaException;
 import com.mypetadmin.ps_contrato.mapper.ContratoMapper;
 import com.mypetadmin.ps_contrato.model.Contrato;
 import com.mypetadmin.ps_contrato.model.StatusContrato;
@@ -98,10 +99,26 @@ public class ContratoServiceImpl implements ContratoService {
         StatusContrato novoStatus = statusContratoRepository.findById(statusId)
                 .orElseThrow(() -> new StatusContratoNotFoundException("Status com o id " + statusId + " não foi encontrado"));
 
+        validarTransicaoStatus(contrato.getStatus().getId(), novoStatus.getId());
+
         contrato.setStatus(novoStatus);
         contrato.setDataAtualizacaoStatus(LocalDateTime.now());
         contratoRepository.save(contrato);
 
         return mapper.toResponseDto(contrato);
+    }
+
+    private void validarTransicaoStatus(Long statusAtual, Long novoStatus) {
+        if (statusAtual.equals(StatusContratoId.AGUARDANDO_PAGAMENTO)
+                && novoStatus.equals(StatusContratoId.ATIVO)) {
+            return;
+        }
+
+        if (statusAtual.equals(StatusContratoId.ATIVO)
+                && novoStatus.equals(StatusContratoId.INATIVO)) {
+            return;
+        }
+
+        throw new TransicaoStatusInvalidaException("Transição de status inválida: " + statusAtual + " -> " + novoStatus);
     }
 }

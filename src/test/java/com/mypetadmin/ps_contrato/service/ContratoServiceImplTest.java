@@ -8,6 +8,7 @@ import com.mypetadmin.ps_contrato.enums.StatusContratoId;
 import com.mypetadmin.ps_contrato.exception.ContratoNotFoundException;
 import com.mypetadmin.ps_contrato.exception.EmpresaNaoEncontradaException;
 import com.mypetadmin.ps_contrato.exception.StatusContratoNotFoundException;
+import com.mypetadmin.ps_contrato.exception.TransicaoStatusInvalidaException;
 import com.mypetadmin.ps_contrato.mapper.ContratoMapper;
 import com.mypetadmin.ps_contrato.model.Contrato;
 import com.mypetadmin.ps_contrato.model.StatusContrato;
@@ -28,6 +29,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -210,8 +212,8 @@ public class ContratoServiceImplTest {
         UUID contratoId = UUID.randomUUID();
 
         StatusContrato novoStatus = StatusContrato.builder()
-                .id(StatusContratoId.INATIVO)
-                .statusName("Inativo")
+                .id(StatusContratoId.ATIVO)
+                .statusName("Ativo")
                 .build();
 
         Contrato contrato = Contrato.builder()
@@ -223,7 +225,7 @@ public class ContratoServiceImplTest {
         when(contratoRepository.findById(contratoId))
                 .thenReturn(Optional.of(contrato));
 
-        when(statusContratoRepository.findById(StatusContratoId.INATIVO))
+        when(statusContratoRepository.findById(StatusContratoId.ATIVO))
                 .thenReturn(Optional.of(novoStatus));
         when(contratoRepository.save(any(Contrato.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
@@ -231,11 +233,118 @@ public class ContratoServiceImplTest {
         when(mapper.toResponseDto(any(Contrato.class)))
                 .thenReturn(new ContratoResponseDTO());
 
-        contratoService.atualizarStatus(contratoId, StatusContratoId.INATIVO);
+        contratoService.atualizarStatus(contratoId, StatusContratoId.ATIVO);
 
         verify(contratoRepository).save(contratoCaptor.capture());
 
         assertThat(contratoCaptor.getValue().getDataAtualizacaoStatus())
                 .isNotNull();
+    }
+
+    @Test
+    void atualizarStatus_quandoInativoParaAtivo_develancarExcecao() {
+        UUID contratoId = UUID.randomUUID();
+
+        Contrato contrato = Contrato.builder()
+                .id(contratoId)
+                .status(StatusContrato.builder()
+                        .id(StatusContratoId.INATIVO)
+                        .statusName("Inativo")
+                        .build())
+                .build();
+
+        StatusContrato ativo = StatusContrato.builder()
+                .id(StatusContratoId.ATIVO)
+                .build();
+
+        when(contratoRepository.findById(contratoId))
+                .thenReturn(Optional.of(contrato));
+        when(statusContratoRepository.findById(StatusContratoId.ATIVO))
+                .thenReturn(Optional.of(ativo));
+
+        assertThrows(TransicaoStatusInvalidaException.class,
+                () -> contratoService.atualizarStatus(contratoId, StatusContratoId.ATIVO));
+    }
+
+    @Test
+    void atualizarStatus_quandoAtivoParaAguardando_deveLancarExcecao() {
+        UUID contratoId = UUID.randomUUID();
+
+        Contrato contrato = Contrato.builder()
+                .id(contratoId)
+                .status(StatusContrato.builder()
+                        .id(StatusContratoId.ATIVO)
+                        .build())
+                .build();
+
+        StatusContrato aguardando = StatusContrato.builder()
+                .id(StatusContratoId.AGUARDANDO_PAGAMENTO)
+                .build();
+        when(contratoRepository.findById(contratoId))
+                .thenReturn(Optional.of(contrato));
+        when(statusContratoRepository.findById(StatusContratoId.AGUARDANDO_PAGAMENTO))
+                .thenReturn(Optional.of(aguardando));
+        assertThrows(TransicaoStatusInvalidaException.class,
+                () -> contratoService.atualizarStatus(
+                        contratoId, StatusContratoId.AGUARDANDO_PAGAMENTO
+                ));
+    }
+
+    @Test
+    void atualizarStatus_quandoAguardandoParaAtivo_devePermitir() {
+        UUID contratoId = UUID.randomUUID();
+
+        Contrato contrato = Contrato.builder()
+                .id(contratoId)
+                .status(StatusContrato.builder()
+                        .id(StatusContratoId.AGUARDANDO_PAGAMENTO)
+                        .build())
+                .build();
+
+        StatusContrato ativo = StatusContrato.builder()
+                .id(StatusContratoId.ATIVO)
+                .build();
+
+        when(contratoRepository.findById(contratoId))
+                .thenReturn(Optional.of(contrato));
+
+        when(statusContratoRepository.findById(StatusContratoId.ATIVO))
+                .thenReturn(Optional.of(ativo));
+
+        when(contratoRepository.save(any()))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+        when(mapper.toResponseDto(any()))
+                .thenReturn(new ContratoResponseDTO());
+        assertDoesNotThrow(() ->
+                contratoService.atualizarStatus(contratoId, StatusContratoId.ATIVO));
+    }
+
+    @Test
+    void atualizarStatus_quandoAtivoParaInativo_devePermitir() {
+        UUID contratoId = UUID.randomUUID();
+
+        Contrato contrato = Contrato.builder()
+                .id(contratoId)
+                .status(StatusContrato.builder()
+                        .id(StatusContratoId.ATIVO)
+                        .build())
+                .build();
+
+        StatusContrato inativo = StatusContrato.builder()
+                .id(StatusContratoId.INATIVO)
+                .build();
+
+        when(contratoRepository.findById(contratoId))
+                .thenReturn(Optional.of(contrato));
+
+        when(statusContratoRepository.findById(StatusContratoId.INATIVO))
+                .thenReturn(Optional.of(inativo));
+
+        when(contratoRepository.save(any()))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+        when(mapper.toResponseDto(any()))
+                .thenReturn(new ContratoResponseDTO());
+        assertDoesNotThrow(() ->
+                contratoService.atualizarStatus(contratoId, StatusContratoId.INATIVO));
     }
 }
