@@ -3,6 +3,7 @@ package com.mypetadmin.ps_contrato.service.impl;
 import com.mypetadmin.ps_contrato.client.EmpresaClient;
 import com.mypetadmin.ps_contrato.dto.ContratoRequestDTO;
 import com.mypetadmin.ps_contrato.dto.ContratoResponseDTO;
+import com.mypetadmin.ps_contrato.enums.StatusContratoId;
 import com.mypetadmin.ps_contrato.exception.ContratoNotFoundException;
 import com.mypetadmin.ps_contrato.exception.EmpresaNaoEncontradaException;
 import com.mypetadmin.ps_contrato.exception.StatusContratoNotFoundException;
@@ -54,9 +55,11 @@ public class ContratoServiceImpl implements ContratoService {
                 .orElse(null);
 
         if (contratoExistente != null) {
-            String status = contratoExistente.getStatus().getStatusName();
-            if (!status.equalsIgnoreCase("Inativo")) {
-                throw new IllegalStateException("Já existe um contrato com status " + status + " para esta empresa");
+            Long statusId = contratoExistente.getStatus().getId();
+            if (!statusId.equals(StatusContratoId.INATIVO)) {
+                throw new IllegalStateException("Já existe um contrato com status "
+                        + contratoExistente.getStatus().getStatusName() +
+                        " para esta empresa");
             }
         }
 
@@ -71,7 +74,7 @@ public class ContratoServiceImpl implements ContratoService {
 
         String numeroContrato = GerarNumeroContratoUtil.gerarNumeroContrato(sequencial);
 
-        StatusContrato statusContrato = statusContratoRepository.findByStatusName("Aguardando pagamento")
+        StatusContrato statusContrato = statusContratoRepository.findById(StatusContratoId.AGUARDANDO_PAGAMENTO)
                 .orElseThrow(() -> new IllegalStateException("Status inicial não encontrado"));
 
         Contrato contrato = Contrato.builder()

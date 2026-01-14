@@ -5,6 +5,7 @@ import io.swagger.v3.oas.models.info.Contact;
 import io.swagger.v3.oas.models.info.Info;
 import io.swagger.v3.oas.models.info.License;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springdoc.core.models.GroupedOpenApi;
 
@@ -19,6 +20,7 @@ public class SwaggerConfigTest {
     }
 
     @Test
+    @DisplayName("Deve criar um Bean Custom Open API com informações corretas")
     void deveCriarBeanCustomOpenAPIComInformacoesCorretas() {
         OpenAPI openAPI = swaggerConfig.customOpenAPI();
         Info info = openAPI.getInfo();
@@ -41,6 +43,7 @@ public class SwaggerConfigTest {
     }
 
     @Test
+    @DisplayName("Deve criar Bean Empresa Group Com Caminho correto")
     void deveCriarBeanEmpresaGroupComCaminhoCorreto() {
         GroupedOpenApi groupedOpenApi = swaggerConfig.empresaGroup();
 

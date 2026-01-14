@@ -26,10 +26,10 @@ public class GlobalExceptionHandlerTest {
     @Test
     void handleEmpresaNaoEncontrada_retornaNotFound() {
         EmpresaNaoEncontradaException ex = new EmpresaNaoEncontradaException("Empresa não encontrada");
-        ResponseEntity<String> response = handler.handleEmpresaNaoEncontrada(ex);
+        ResponseEntity<Map<String, String>> response = handler.handleEmpresaNaoEncontrada(ex);
 
         assertEquals(HttpStatus.NOT_FOUND, response.getStatusCode());
-        assertEquals("Empresa não encontrada", response.getBody());
+        assertEquals("Empresa não encontrada", response.getBody().get("error"));
     }
 
     @Test

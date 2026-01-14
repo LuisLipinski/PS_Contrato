@@ -3,7 +3,10 @@ package com.mypetadmin.ps_contrato.controller;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.mypetadmin.ps_contrato.dto.ContratoRequestDTO;
 import com.mypetadmin.ps_contrato.dto.ContratoResponseDTO;
+import com.mypetadmin.ps_contrato.dto.ContratoStatusUpdateDTO;
+import com.mypetadmin.ps_contrato.exception.ContratoNotFoundException;
 import com.mypetadmin.ps_contrato.exception.EmpresaNaoEncontradaException;
+import com.mypetadmin.ps_contrato.exception.StatusContratoNotFoundException;
 import com.mypetadmin.ps_contrato.service.ContratoService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -16,8 +19,10 @@ import java.time.LocalDateTime;
 import java.util.UUID;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultHandlers.print;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
@@ -88,6 +93,54 @@ public class ContratoControllerTest {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(requestDTO)))
                 .andExpect(status().isNotFound())
-                .andExpect(content().string("Empresa não encontrada"));
+                .andExpect(jsonPath("$.error").value("Empresa não encontrada"));
     }
+
+    @Test
+    void atualizarStatus_quandoStatusIdNulo_retornaBadRequest() throws Exception {
+        UUID contratoId = UUID.randomUUID();
+
+        ContratoStatusUpdateDTO requestDTO = new ContratoStatusUpdateDTO();
+        requestDTO.setStatusId(null);
+
+        mockMvc.perform(put("/contratos/{id}/status", contratoId)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(requestDTO)))
+            .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void atualizarStatus_quandoContratoNaoExiste_retornaNotFound() throws Exception {
+        UUID contratoid = UUID.randomUUID();
+
+        ContratoStatusUpdateDTO requestDTO = new ContratoStatusUpdateDTO();
+        requestDTO.setStatusId(2L);
+
+        when(contratoService.atualizarStatus(eq(contratoid), eq(2L)))
+                .thenThrow(new ContratoNotFoundException("Contrato não encontrado"));
+
+        mockMvc.perform(put("/contratos/{id}/status", contratoid)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(requestDTO)))
+            .andExpect(status().isNotFound())
+            .andExpect(jsonPath("$.error").value("Contrato não encontrado"));
+    }
+
+    @Test
+    void atualizarStatus_quandoStatusNaoExiste_retornaNotFound() throws Exception {
+        UUID contratoId = UUID.randomUUID();
+
+        ContratoStatusUpdateDTO requestDTO = new ContratoStatusUpdateDTO();
+        requestDTO.setStatusId(99L);
+
+        when(contratoService.atualizarStatus(eq(contratoId), eq(99L)))
+                .thenThrow(new StatusContratoNotFoundException("Status não encontrado"));
+
+        mockMvc.perform(put("/contratos/{id}/status", contratoId)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(requestDTO)))
+            .andExpect(status().isNotFound())
+            .andExpect(jsonPath("$.error").value("Status não encontrado"));
+    }
+
 }
