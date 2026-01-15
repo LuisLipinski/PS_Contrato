@@ -12,13 +12,18 @@ import com.mypetadmin.ps_contrato.mapper.ContratoMapper;
 import com.mypetadmin.ps_contrato.model.Contrato;
 import com.mypetadmin.ps_contrato.model.StatusContrato;
 import com.mypetadmin.ps_contrato.repository.ContratoRepository;
+import com.mypetadmin.ps_contrato.repository.ContratoSpecification;
 import com.mypetadmin.ps_contrato.repository.StatusContratoRepository;
 import com.mypetadmin.ps_contrato.service.ContratoService;
 import com.mypetadmin.ps_contrato.util.GerarNumeroContratoUtil;
-import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
+
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -120,5 +125,19 @@ public class ContratoServiceImpl implements ContratoService {
         }
 
         throw new TransicaoStatusInvalidaException("Transição de status inválida: " + statusAtual + " -> " + novoStatus);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Page<ContratoResponseDTO> buscarContratos(UUID empresaId, String numeroContrato, String status, LocalDate dataInicio, LocalDate dataFim, Pageable pageable) {
+        Specification<Contrato> spec = ContratoSpecification.filtrar(
+                empresaId,
+                numeroContrato,
+                status,
+                dataInicio,
+                dataFim
+        );
+
+        return contratoRepository.findAll(spec, pageable).map(mapper::toResponseDto);
     }
 }
