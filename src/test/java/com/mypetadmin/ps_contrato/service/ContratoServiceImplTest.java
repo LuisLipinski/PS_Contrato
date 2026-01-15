@@ -18,12 +18,15 @@ import com.mypetadmin.ps_contrato.service.impl.ContratoServiceImpl;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.ArgumentCaptor;
-import org.mockito.Captor;
-import org.mockito.InjectMocks;
-import org.mockito.Mock;
+import org.mockito.*;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.domain.Specification;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.Optional;
 import java.util.UUID;
@@ -347,4 +350,20 @@ public class ContratoServiceImplTest {
         assertDoesNotThrow(() ->
                 contratoService.atualizarStatus(contratoId, StatusContratoId.INATIVO));
     }
+
+    @Test
+    void buscarContratos_comFiltroDeData_deveExecutarConsulta() {
+        LocalDate dataInicio = LocalDate.of(2026,1,1);
+        LocalDate dataFim = LocalDate.of(2026,1,31);
+
+        Pageable pageable = PageRequest.of(0,10, Sort.Direction.DESC, "dataCriacao");
+
+        when(contratoRepository.findAll(ArgumentMatchers.<Specification<Contrato>>any(), eq(pageable))).thenReturn(Page.empty());
+
+        contratoService.buscarContratos(null,null,null,dataInicio,dataFim,pageable);
+
+        verify(contratoRepository).findAll(ArgumentMatchers.<Specification<Contrato>>any(), eq(pageable));
+    }
+
+
 }

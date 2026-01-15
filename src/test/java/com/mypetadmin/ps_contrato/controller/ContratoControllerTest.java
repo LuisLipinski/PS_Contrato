@@ -12,6 +12,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.data.domain.Page;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -21,6 +22,7 @@ import java.util.UUID;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultHandlers.print;
@@ -141,6 +143,28 @@ public class ContratoControllerTest {
                 .content(objectMapper.writeValueAsString(requestDTO)))
             .andExpect(status().isNotFound())
             .andExpect(jsonPath("$.error").value("Status não encontrado"));
+    }
+
+    @Test
+    void buscarContratos_comFiltroDeData_retornaOk() throws Exception {
+        when(contratoService.buscarContratos(
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any()
+        )).thenReturn(Page.empty());
+
+        mockMvc.perform(get("/contratos")
+                .param("dataInicio", "2026-01-01")
+                .param("dataFim", "2026-01-31")
+                .param("page", "0")
+                .param("size", "10")
+                .param("sortField", "DATA_CRIACAO")
+                .param("direction", "DESC")
+                .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk());
     }
 
 }

@@ -34,7 +34,7 @@ public class ContratoSpecification {
                 predicates.add(
                         cb.equal(
                                 cb.upper(root.get("status").get("statusName")),
-                                status.toLowerCase()
+                                status.toUpperCase()
                         )
                 );
             }
