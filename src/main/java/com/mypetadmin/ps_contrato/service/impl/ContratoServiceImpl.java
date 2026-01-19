@@ -3,21 +3,31 @@ package com.mypetadmin.ps_contrato.service.impl;
 import com.mypetadmin.ps_contrato.client.EmpresaClient;
 import com.mypetadmin.ps_contrato.dto.ContratoRequestDTO;
 import com.mypetadmin.ps_contrato.dto.ContratoResponseDTO;
+import com.mypetadmin.ps_contrato.enums.StatusContratoId;
+import com.mypetadmin.ps_contrato.exception.ContratoNotFoundException;
 import com.mypetadmin.ps_contrato.exception.EmpresaNaoEncontradaException;
+import com.mypetadmin.ps_contrato.exception.StatusContratoNotFoundException;
+import com.mypetadmin.ps_contrato.exception.TransicaoStatusInvalidaException;
 import com.mypetadmin.ps_contrato.mapper.ContratoMapper;
 import com.mypetadmin.ps_contrato.model.Contrato;
 import com.mypetadmin.ps_contrato.model.StatusContrato;
 import com.mypetadmin.ps_contrato.repository.ContratoRepository;
+import com.mypetadmin.ps_contrato.repository.ContratoSpecification;
 import com.mypetadmin.ps_contrato.repository.StatusContratoRepository;
 import com.mypetadmin.ps_contrato.service.ContratoService;
 import com.mypetadmin.ps_contrato.util.GerarNumeroContratoUtil;
-import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
+
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.UUID;
 
 import static com.mypetadmin.ps_contrato.util.GerarNumeroContratoUtil.gerarNumeroContrato;
 
@@ -51,9 +61,11 @@ public class ContratoServiceImpl implements ContratoService {
                 .orElse(null);
 
         if (contratoExistente != null) {
-            String status = contratoExistente.getStatus().getStatusName();
-            if (!status.equalsIgnoreCase("Inativo")) {
-                throw new IllegalStateException("Já existe um contrato com status " + status + " para esta empresa");
+            Long statusId = contratoExistente.getStatus().getId();
+            if (!statusId.equals(StatusContratoId.INATIVO)) {
+                throw new IllegalStateException("Já existe um contrato com status "
+                        + contratoExistente.getStatus().getStatusName() +
+                        " para esta empresa");
             }
         }
 
@@ -68,7 +80,7 @@ public class ContratoServiceImpl implements ContratoService {
 
         String numeroContrato = GerarNumeroContratoUtil.gerarNumeroContrato(sequencial);
 
-        StatusContrato statusContrato = statusContratoRepository.findByStatusName("Aguardando pagamento")
+        StatusContrato statusContrato = statusContratoRepository.findById(StatusContratoId.AGUARDANDO_PAGAMENTO)
                 .orElseThrow(() -> new IllegalStateException("Status inicial não encontrado"));
 
         Contrato contrato = Contrato.builder()
@@ -81,5 +93,51 @@ public class ContratoServiceImpl implements ContratoService {
         contratoRepository.save(contrato);
 
         return mapper.toResponseDto(contrato);
+    }
+
+    @Override
+    @Transactional
+    public ContratoResponseDTO atualizarStatus(UUID id, Long statusId) {
+        Contrato contrato = contratoRepository.findById(id)
+                .orElseThrow(() -> new ContratoNotFoundException("Contrato com o id " + id + " não foi encontrado"));
+
+        StatusContrato novoStatus = statusContratoRepository.findById(statusId)
+                .orElseThrow(() -> new StatusContratoNotFoundException("Status com o id " + statusId + " não foi encontrado"));
+
+        validarTransicaoStatus(contrato.getStatus().getId(), novoStatus.getId());
+
+        contrato.setStatus(novoStatus);
+        contrato.setDataAtualizacaoStatus(LocalDateTime.now());
+        contratoRepository.save(contrato);
+
+        return mapper.toResponseDto(contrato);
+    }
+
+    private void validarTransicaoStatus(Long statusAtual, Long novoStatus) {
+        if (statusAtual.equals(StatusContratoId.AGUARDANDO_PAGAMENTO)
+                && novoStatus.equals(StatusContratoId.ATIVO)) {
+            return;
+        }
+
+        if (statusAtual.equals(StatusContratoId.ATIVO)
+                && novoStatus.equals(StatusContratoId.INATIVO)) {
+            return;
+        }
+
+        throw new TransicaoStatusInvalidaException("Transição de status inválida: " + statusAtual + " -> " + novoStatus);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Page<ContratoResponseDTO> buscarContratos(UUID empresaId, String numeroContrato, String status, LocalDate dataInicio, LocalDate dataFim, Pageable pageable) {
+        Specification<Contrato> spec = ContratoSpecification.filtrar(
+                empresaId,
+                numeroContrato,
+                status,
+                dataInicio,
+                dataFim
+        );
+
+        return contratoRepository.findAll(spec, pageable).map(mapper::toResponseDto);
     }
 }
