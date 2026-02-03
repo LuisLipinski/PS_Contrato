@@ -10,7 +10,9 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotNull;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -24,6 +26,7 @@ import org.springframework.web.bind.annotation.*;
 import java.time.LocalDate;
 import java.util.UUID;
 
+@Slf4j
 @RestController
 @RequestMapping("/contratos")
 @RequiredArgsConstructor
@@ -53,6 +56,11 @@ public class ContratoController {
     })
     public ResponseEntity<ContratoResponseDTO>atualizarStatus(@PathVariable UUID id,
                                                               @Valid @RequestBody ContratoStatusUpdateDTO statusUpdateDTO) {
+        log.info(
+                "Requisição para atualizar status do contrato {} para status {}",
+                id,
+                statusUpdateDTO.getStatusId()
+        );
         ContratoResponseDTO contratoAtualizado = contratoService.atualizarStatus(id, statusUpdateDTO.getStatusId());
         return ResponseEntity.ok(contratoAtualizado);
     }
@@ -81,6 +89,24 @@ public class ContratoController {
                 dataFim,
                 pageable
         ));
+    }
+
+    @Operation(summary = "Ativar empresa com base em contrato ativo (uso interno)")
+    @ApiResponses({
+            @ApiResponse(responseCode = "204", description = "Empresa ativada com sucesso"),
+            @ApiResponse(responseCode = "400", description = "Contrato não esta ativo")
+    })
+    @PutMapping("/internal/empresa/{empresaId}/ativar")
+    public ResponseEntity<Void>ativarEmpresaPorContrato(@PathVariable @NotNull UUID empresaId) {
+        log.info("Requisição interna para ativar empresa {} via contrato", empresaId);
+
+        contratoService.ativarEmpresa(empresaId);
+        return ResponseEntity.noContent().build();
+    }
+
+    @GetMapping("/empresa/{empresaId}/ativo")
+    public ResponseEntity<Boolean> empresaPossuiContratoAtivo(@PathVariable UUID empresaId) {
+        return ResponseEntity.ok(contratoService.empresaPossuiContratoAtivo(empresaId));
     }
 
 }

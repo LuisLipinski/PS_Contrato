@@ -15,5 +15,9 @@ public interface ContratoService {
 
     ContratoResponseDTO atualizarStatus(UUID id, @NotNull(message = "O Status não pode ser nulo") Long statusId);
 
+    void ativarEmpresa(UUID empresaId);
+
     Page<ContratoResponseDTO> buscarContratos(UUID empresaId, String numeroContrato, String status, LocalDate dataInicio, LocalDate dataFim, Pageable pageable);
+
+    boolean empresaPossuiContratoAtivo(UUID empresaId);
 }

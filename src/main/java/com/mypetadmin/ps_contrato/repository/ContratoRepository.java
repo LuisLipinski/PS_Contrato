@@ -13,4 +13,6 @@ public interface ContratoRepository extends JpaRepository<Contrato, UUID>, JpaSp
     Contrato findTopByContractNumberStartingWithOrderByContractNumberDesc(String prefixo);
 
     Optional<Contrato> findTopByEmpresaIdOrderByDataCriacaoDesc(@NotNull UUID empresaId);
+
+    boolean existsByEmpresaIdAndStatus_Id(UUID empresaId, Long statusId);
 }

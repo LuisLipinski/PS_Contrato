@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import org.springframework.cloud.openfeign.FeignClient;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PutMapping;
 
 import java.util.UUID;
 
@@ -13,4 +14,7 @@ public interface EmpresaClient {
 
     @GetMapping("/buscaEmpresas/{id}")
     JsonNode existsById(@PathVariable("id") UUID id);
+
+    @PutMapping("/internal/{empresaId}/ativar")
+    void ativarEmpresaPorContrato(@PathVariable UUID empresaId);
 }

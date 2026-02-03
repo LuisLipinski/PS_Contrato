@@ -110,7 +110,24 @@ public class ContratoServiceImpl implements ContratoService {
         contrato.setDataAtualizacaoStatus(LocalDateTime.now());
         contratoRepository.save(contrato);
 
+        log.info("Contrato {} atualizado para status {}",
+                id,
+                statusId
+        );
+
         return mapper.toResponseDto(contrato);
+    }
+
+    @Override
+    public void ativarEmpresa(UUID empresaId) {
+        boolean contratoAtivo = contratoRepository.existsByEmpresaIdAndStatus_Id(empresaId, StatusContratoId.ATIVO);
+        if (!contratoAtivo) {
+            throw new IllegalStateException("Tentativa de ativar empresa sem contrato ativo");
+        }
+
+        empresaClient.ativarEmpresaPorContrato(empresaId);
+
+        log.info("Empresa {} ativa com sucesso via contrato ativo", empresaId);
     }
 
     private void validarTransicaoStatus(Long statusAtual, Long novoStatus) {
@@ -140,4 +157,11 @@ public class ContratoServiceImpl implements ContratoService {
 
         return contratoRepository.findAll(spec, pageable).map(mapper::toResponseDto);
     }
+
+    @Override
+    @Transactional(readOnly = true)
+    public boolean empresaPossuiContratoAtivo(UUID empresaId) {
+        return contratoRepository.existsByEmpresaIdAndStatus_Id(empresaId, StatusContratoId.ATIVO);
+    }
+
 }
