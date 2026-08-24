@@ -53,6 +53,7 @@ jobs:
         run: |
           psql -h localhost -U postgres -d ps_contrato -v ON_ERROR_STOP=1 -f src/main/resources/db/migration/V1__init_contrato_schema.sql
           psql -h localhost -U postgres -d ps_contrato -v ON_ERROR_STOP=1 -f src/main/resources/db/migration/V2__harden_existing_contrato_schema.sql
+          psql -h localhost -U postgres -d ps_contrato -v ON_ERROR_STOP=1 -f src/main/resources/db/migration/V3__onboarding_payment_idempotency_and_contract_sequence.sql
 
   docker-build:
     runs-on: ubuntu-latest
