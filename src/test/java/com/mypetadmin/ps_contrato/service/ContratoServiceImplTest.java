@@ -5,11 +5,13 @@ import com.mypetadmin.ps_contrato.dto.ContratoRequestDTO;
 import com.mypetadmin.ps_contrato.dto.ContratoResponseDTO;
 import com.mypetadmin.ps_contrato.dto.EmpresaContratoStatusDTO;
 import com.mypetadmin.ps_contrato.dto.EmpresaStatusResponseDTO;
+import com.mypetadmin.ps_contrato.dto.PagamentoConfirmadoRequestDTO;
 import com.mypetadmin.ps_contrato.enums.StatusContratoId;
 import com.mypetadmin.ps_contrato.exception.ContratoExistenteException;
 import com.mypetadmin.ps_contrato.exception.ContratoNotFoundException;
 import com.mypetadmin.ps_contrato.exception.EmpresaNaoEncontradaException;
 import com.mypetadmin.ps_contrato.exception.IntegracaoEmpresaException;
+import com.mypetadmin.ps_contrato.exception.PagamentoConfirmacaoInvalidaException;
 import com.mypetadmin.ps_contrato.exception.StatusContratoNotFoundException;
 import com.mypetadmin.ps_contrato.exception.TransicaoStatusInvalidaException;
 import com.mypetadmin.ps_contrato.mapper.ContratoMapper;
@@ -32,13 +34,13 @@ import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
@@ -57,17 +59,30 @@ class ContratoServiceImplTest {
     private EmpresaClient empresaClient;
     @Mock
     private ContratoMapper mapper;
+    @Mock
+    private ContratoNumeroGenerator numeroGenerator;
+    @Mock
+    private OnboardingLockService onboardingLockService;
 
     private ContratoServiceImpl contratoService;
     private UUID empresaId;
+    private UUID onboardingId;
     private StatusContrato aguardando;
     private StatusContrato ativo;
     private StatusContrato inativo;
 
     @BeforeEach
     void setUp() {
-        contratoService = new ContratoServiceImpl(contratoRepository, statusContratoRepository, empresaClient, mapper);
+        contratoService = new ContratoServiceImpl(
+                contratoRepository,
+                statusContratoRepository,
+                empresaClient,
+                mapper,
+                numeroGenerator,
+                onboardingLockService
+        );
         empresaId = UUID.randomUUID();
+        onboardingId = UUID.randomUUID();
         aguardando = status(StatusContratoId.AGUARDANDO_PAGAMENTO, "Aguardando pagamento");
         ativo = status(StatusContratoId.ATIVO, "Ativo");
         inativo = status(StatusContratoId.INATIVO, "Inativo");
@@ -75,23 +90,25 @@ class ContratoServiceImplTest {
 
     @Test
     void criarContratoDeveValidarEmpresaPersistirESincronizarStatus() {
+        when(contratoRepository.findByOnboardingId(onboardingId)).thenReturn(Optional.empty());
         when(empresaClient.buscarStatusEmpresa(empresaId)).thenReturn(new EmpresaStatusResponseDTO(empresaId, "AGUARDANDO_CONTRATO"));
         when(contratoRepository.findTopByEmpresaIdOrderByDataCriacaoDesc(empresaId)).thenReturn(Optional.empty());
-        when(contratoRepository.findTopByContractNumberStartingWithOrderByContractNumberDesc(anyString())).thenReturn(null);
+        when(numeroGenerator.gerarProximoNumero()).thenReturn("202608000001");
         when(statusContratoRepository.findById(StatusContratoId.AGUARDANDO_PAGAMENTO)).thenReturn(Optional.of(aguardando));
 
         ContratoResponseDTO response = ContratoResponseDTO.builder().empresaId(empresaId).build();
         when(mapper.toResponseDto(any(Contrato.class))).thenReturn(response);
 
-        ContratoResponseDTO result = contratoService.criarContrato(new ContratoRequestDTO(empresaId));
+        ContratoResponseDTO result = contratoService.criarContrato(new ContratoRequestDTO(empresaId, onboardingId));
 
         assertThat(result).isSameAs(response);
+        verify(onboardingLockService).lock(onboardingId);
 
         ArgumentCaptor<Contrato> contratoCaptor = ArgumentCaptor.forClass(Contrato.class);
         verify(contratoRepository).saveAndFlush(contratoCaptor.capture());
-        assertThat(contratoCaptor.getValue().getContractNumber()).endsWith("000001");
+        assertThat(contratoCaptor.getValue().getContractNumber()).isEqualTo("202608000001");
+        assertThat(contratoCaptor.getValue().getOnboardingId()).isEqualTo(onboardingId);
         assertThat(contratoCaptor.getValue().getStatus().getId()).isEqualTo(StatusContratoId.AGUARDANDO_PAGAMENTO);
-        assertThat(contratoCaptor.getValue().getDataAtualizacaoStatus()).isNotNull();
 
         ArgumentCaptor<EmpresaContratoStatusDTO> callbackCaptor = ArgumentCaptor.forClass(EmpresaContratoStatusDTO.class);
         verify(empresaClient).sincronizarStatusContrato(callbackCaptor.capture());
@@ -100,10 +117,46 @@ class ContratoServiceImplTest {
     }
 
     @Test
+    void criarContratoDeveSerIdempotenteParaMesmoOnboarding() {
+        Contrato existente = Contrato.builder()
+                .id(UUID.randomUUID())
+                .empresaId(empresaId)
+                .onboardingId(onboardingId)
+                .contractNumber("202608000001")
+                .status(aguardando)
+                .build();
+        ContratoResponseDTO response = ContratoResponseDTO.builder().id(existente.getId()).build();
+        when(contratoRepository.findByOnboardingId(onboardingId)).thenReturn(Optional.of(existente));
+        when(mapper.toResponseDto(existente)).thenReturn(response);
+
+        assertThat(contratoService.criarContrato(new ContratoRequestDTO(empresaId, onboardingId))).isSameAs(response);
+
+        verify(onboardingLockService).lock(onboardingId);
+        verify(empresaClient, never()).buscarStatusEmpresa(any());
+        verify(numeroGenerator, never()).gerarProximoNumero();
+        verify(contratoRepository, never()).saveAndFlush(any());
+    }
+
+    @Test
+    void criarContratoDeveRejeitarOnboardingJaAssociadoAOutraEmpresa() {
+        Contrato existente = Contrato.builder()
+                .id(UUID.randomUUID())
+                .empresaId(UUID.randomUUID())
+                .onboardingId(onboardingId)
+                .status(aguardando)
+                .build();
+        when(contratoRepository.findByOnboardingId(onboardingId)).thenReturn(Optional.of(existente));
+
+        assertThatThrownBy(() -> contratoService.criarContrato(new ContratoRequestDTO(empresaId, onboardingId)))
+                .isInstanceOf(ContratoExistenteException.class);
+    }
+
+    @Test
     void criarContratoDeveFalharQuandoEmpresaNaoExiste() {
+        when(contratoRepository.findByOnboardingId(onboardingId)).thenReturn(Optional.empty());
         when(empresaClient.buscarStatusEmpresa(empresaId)).thenThrow(mock(FeignException.NotFound.class));
 
-        assertThatThrownBy(() -> contratoService.criarContrato(new ContratoRequestDTO(empresaId)))
+        assertThatThrownBy(() -> contratoService.criarContrato(new ContratoRequestDTO(empresaId, onboardingId)))
                 .isInstanceOf(EmpresaNaoEncontradaException.class);
 
         verify(contratoRepository, never()).saveAndFlush(any());
@@ -111,9 +164,10 @@ class ContratoServiceImplTest {
 
     @Test
     void criarContratoNaoDeveProsseguirQuandoPsEmpresaFalha() {
+        when(contratoRepository.findByOnboardingId(onboardingId)).thenReturn(Optional.empty());
         when(empresaClient.buscarStatusEmpresa(empresaId)).thenThrow(mock(FeignException.class));
 
-        assertThatThrownBy(() -> contratoService.criarContrato(new ContratoRequestDTO(empresaId)))
+        assertThatThrownBy(() -> contratoService.criarContrato(new ContratoRequestDTO(empresaId, onboardingId)))
                 .isInstanceOf(IntegracaoEmpresaException.class);
 
         verify(contratoRepository, never()).findTopByEmpresaIdOrderByDataCriacaoDesc(any());
@@ -122,54 +176,94 @@ class ContratoServiceImplTest {
 
     @Test
     void criarContratoDeveRejeitarContratoNaoInativoExistente() {
+        when(contratoRepository.findByOnboardingId(onboardingId)).thenReturn(Optional.empty());
         when(empresaClient.buscarStatusEmpresa(empresaId)).thenReturn(new EmpresaStatusResponseDTO(empresaId, "ATIVO"));
         when(contratoRepository.findTopByEmpresaIdOrderByDataCriacaoDesc(empresaId))
                 .thenReturn(Optional.of(Contrato.builder().empresaId(empresaId).status(ativo).build()));
 
-        assertThatThrownBy(() -> contratoService.criarContrato(new ContratoRequestDTO(empresaId)))
+        assertThatThrownBy(() -> contratoService.criarContrato(new ContratoRequestDTO(empresaId, onboardingId)))
                 .isInstanceOf(ContratoExistenteException.class);
     }
 
     @Test
     void criarContratoDevePermitirNovoContratoAposUltimoInativo() {
+        when(contratoRepository.findByOnboardingId(onboardingId)).thenReturn(Optional.empty());
         when(empresaClient.buscarStatusEmpresa(empresaId)).thenReturn(new EmpresaStatusResponseDTO(empresaId, "INATIVO"));
         when(contratoRepository.findTopByEmpresaIdOrderByDataCriacaoDesc(empresaId))
                 .thenReturn(Optional.of(Contrato.builder().empresaId(empresaId).status(inativo).build()));
-        when(contratoRepository.findTopByContractNumberStartingWithOrderByContractNumberDesc(anyString())).thenReturn(null);
+        when(numeroGenerator.gerarProximoNumero()).thenReturn("202608000002");
         when(statusContratoRepository.findById(StatusContratoId.AGUARDANDO_PAGAMENTO)).thenReturn(Optional.of(aguardando));
         when(mapper.toResponseDto(any())).thenReturn(new ContratoResponseDTO());
 
-        contratoService.criarContrato(new ContratoRequestDTO(empresaId));
+        contratoService.criarContrato(new ContratoRequestDTO(empresaId, onboardingId));
 
         verify(contratoRepository).saveAndFlush(any(Contrato.class));
     }
 
     @Test
-    void criarContratoDeveFalharQuandoStatusInicialNaoExiste() {
-        when(empresaClient.buscarStatusEmpresa(empresaId)).thenReturn(new EmpresaStatusResponseDTO(empresaId, "AGUARDANDO_CONTRATO"));
-        when(contratoRepository.findTopByEmpresaIdOrderByDataCriacaoDesc(empresaId)).thenReturn(Optional.empty());
-        when(contratoRepository.findTopByContractNumberStartingWithOrderByContractNumberDesc(anyString())).thenReturn(null);
-        when(statusContratoRepository.findById(StatusContratoId.AGUARDANDO_PAGAMENTO)).thenReturn(Optional.empty());
-
-        assertThatThrownBy(() -> contratoService.criarContrato(new ContratoRequestDTO(empresaId)))
-                .isInstanceOf(StatusContratoNotFoundException.class);
-    }
-
-    @Test
-    void atualizarStatusAguardandoParaAtivoDevePersistirESincronizarEmpresa() {
+    void confirmarPagamentoDeveAtivarContratoESincronizarEmpresa() {
         UUID contratoId = UUID.randomUUID();
+        UUID paymentId = UUID.randomUUID();
+        LocalDateTime paidAt = LocalDateTime.now().minusMinutes(1);
         Contrato contrato = contrato(contratoId, aguardando);
         when(contratoRepository.findById(contratoId)).thenReturn(Optional.of(contrato));
         when(statusContratoRepository.findById(StatusContratoId.ATIVO)).thenReturn(Optional.of(ativo));
         when(mapper.toResponseDto(contrato)).thenReturn(ContratoResponseDTO.builder().statusName("Ativo").build());
 
-        ContratoResponseDTO result = contratoService.atualizarStatus(contratoId, StatusContratoId.ATIVO);
+        ContratoResponseDTO result = contratoService.confirmarPagamento(
+                contratoId,
+                new PagamentoConfirmadoRequestDTO(paymentId, paidAt)
+        );
 
         assertThat(result.getStatusName()).isEqualTo("Ativo");
         assertThat(contrato.getStatus()).isSameAs(ativo);
-        assertThat(contrato.getDataAtualizacaoStatus()).isNotNull();
+        assertThat(contrato.getActivationPaymentId()).isEqualTo(paymentId);
+        assertThat(contrato.getDataPagamentoConfirmado()).isEqualTo(paidAt);
         verify(contratoRepository).saveAndFlush(contrato);
         verify(empresaClient).sincronizarStatusContrato(new EmpresaContratoStatusDTO(empresaId, "ATIVO"));
+    }
+
+    @Test
+    void confirmarPagamentoDeveSerIdempotenteParaMesmoPaymentId() {
+        UUID contratoId = UUID.randomUUID();
+        UUID paymentId = UUID.randomUUID();
+        Contrato contrato = contrato(contratoId, ativo);
+        contrato.setActivationPaymentId(paymentId);
+        ContratoResponseDTO response = ContratoResponseDTO.builder().statusName("Ativo").build();
+        when(contratoRepository.findById(contratoId)).thenReturn(Optional.of(contrato));
+        when(mapper.toResponseDto(contrato)).thenReturn(response);
+
+        assertThat(contratoService.confirmarPagamento(
+                contratoId,
+                new PagamentoConfirmadoRequestDTO(paymentId, LocalDateTime.now())
+        )).isSameAs(response);
+
+        verify(contratoRepository, never()).saveAndFlush(any());
+        verify(empresaClient, never()).sincronizarStatusContrato(any());
+    }
+
+    @Test
+    void confirmarPagamentoDeveRejeitarPaymentIdDiferenteAposAtivacao() {
+        UUID contratoId = UUID.randomUUID();
+        Contrato contrato = contrato(contratoId, ativo);
+        contrato.setActivationPaymentId(UUID.randomUUID());
+        when(contratoRepository.findById(contratoId)).thenReturn(Optional.of(contrato));
+
+        assertThatThrownBy(() -> contratoService.confirmarPagamento(
+                contratoId,
+                new PagamentoConfirmadoRequestDTO(UUID.randomUUID(), LocalDateTime.now())
+        )).isInstanceOf(PagamentoConfirmacaoInvalidaException.class);
+    }
+
+    @Test
+    void confirmarPagamentoDeveFalharQuandoContratoNaoExiste() {
+        UUID contratoId = UUID.randomUUID();
+        when(contratoRepository.findById(contratoId)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> contratoService.confirmarPagamento(
+                contratoId,
+                new PagamentoConfirmadoRequestDTO(UUID.randomUUID(), LocalDateTime.now())
+        )).isInstanceOf(ContratoNotFoundException.class);
     }
 
     @Test
@@ -183,6 +277,18 @@ class ContratoServiceImplTest {
         contratoService.atualizarStatus(contratoId, StatusContratoId.INATIVO);
 
         verify(empresaClient).sincronizarStatusContrato(new EmpresaContratoStatusDTO(empresaId, "INATIVO"));
+    }
+
+    @Test
+    void atualizarStatusNaoDevePermitirAtivacaoAdministrativa() {
+        UUID contratoId = UUID.randomUUID();
+        Contrato contrato = contrato(contratoId, aguardando);
+        when(contratoRepository.findById(contratoId)).thenReturn(Optional.of(contrato));
+        when(statusContratoRepository.findById(StatusContratoId.ATIVO)).thenReturn(Optional.of(ativo));
+
+        assertThatThrownBy(() -> contratoService.atualizarStatus(contratoId, StatusContratoId.ATIVO))
+                .isInstanceOf(TransicaoStatusInvalidaException.class)
+                .hasMessageContaining("pagamento");
     }
 
     @Test
@@ -201,26 +307,6 @@ class ContratoServiceImplTest {
     }
 
     @Test
-    void atualizarStatusDeveRejeitarTransicaoInvalida() {
-        UUID contratoId = UUID.randomUUID();
-        Contrato contrato = contrato(contratoId, inativo);
-        when(contratoRepository.findById(contratoId)).thenReturn(Optional.of(contrato));
-        when(statusContratoRepository.findById(StatusContratoId.ATIVO)).thenReturn(Optional.of(ativo));
-
-        assertThatThrownBy(() -> contratoService.atualizarStatus(contratoId, StatusContratoId.ATIVO))
-                .isInstanceOf(TransicaoStatusInvalidaException.class);
-    }
-
-    @Test
-    void atualizarStatusDeveFalharQuandoContratoNaoExiste() {
-        UUID contratoId = UUID.randomUUID();
-        when(contratoRepository.findById(contratoId)).thenReturn(Optional.empty());
-
-        assertThatThrownBy(() -> contratoService.atualizarStatus(contratoId, StatusContratoId.ATIVO))
-                .isInstanceOf(ContratoNotFoundException.class);
-    }
-
-    @Test
     void atualizarStatusDeveFalharQuandoStatusNaoExiste() {
         UUID contratoId = UUID.randomUUID();
         Contrato contrato = contrato(contratoId, aguardando);
@@ -232,7 +318,7 @@ class ContratoServiceImplTest {
     }
 
     @Test
-    void atualizarStatusDeveFalharQuandoCallbackDaEmpresaFalha() {
+    void confirmarPagamentoDeveFalharQuandoCallbackDaEmpresaFalha() {
         UUID contratoId = UUID.randomUUID();
         Contrato contrato = contrato(contratoId, aguardando);
         when(contratoRepository.findById(contratoId)).thenReturn(Optional.of(contrato));
@@ -240,8 +326,10 @@ class ContratoServiceImplTest {
         doThrow(mock(FeignException.class))
                 .when(empresaClient).sincronizarStatusContrato(any(EmpresaContratoStatusDTO.class));
 
-        assertThatThrownBy(() -> contratoService.atualizarStatus(contratoId, StatusContratoId.ATIVO))
-                .isInstanceOf(IntegracaoEmpresaException.class);
+        assertThatThrownBy(() -> contratoService.confirmarPagamento(
+                contratoId,
+                new PagamentoConfirmadoRequestDTO(UUID.randomUUID(), LocalDateTime.now())
+        )).isInstanceOf(IntegracaoEmpresaException.class);
     }
 
     @Test
@@ -280,6 +368,7 @@ class ContratoServiceImplTest {
         return Contrato.builder()
                 .id(id)
                 .empresaId(empresaId)
+                .onboardingId(onboardingId)
                 .contractNumber("202608000001")
                 .status(status)
                 .build();
