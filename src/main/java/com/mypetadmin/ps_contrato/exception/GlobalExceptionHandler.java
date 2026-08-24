@@ -50,10 +50,16 @@ public class GlobalExceptionHandler {
         return build(HttpStatus.CONFLICT, "INVALID_STATUS_TRANSITION", ex.getMessage(), request);
     }
 
+    @ExceptionHandler(PagamentoConfirmacaoInvalidaException.class)
+    public ResponseEntity<ErrorResponse> handlePagamentoConfirmacaoInvalida(PagamentoConfirmacaoInvalidaException ex,
+                                                                             HttpServletRequest request) {
+        return build(HttpStatus.CONFLICT, "PAYMENT_CONFIRMATION_CONFLICT", ex.getMessage(), request);
+    }
+
     @ExceptionHandler(IntegracaoEmpresaException.class)
     public ResponseEntity<ErrorResponse> handleIntegracaoEmpresa(IntegracaoEmpresaException ex,
                                                                   HttpServletRequest request) {
-        log.error("Falha de integração com PS_Empresa em {}", request.getRequestURI(), ex);
+        log.error("integration.ps-empresa failed method={} path={}", request.getMethod(), request.getRequestURI(), ex);
         return build(
                 HttpStatus.BAD_GATEWAY,
                 "PS_EMPRESA_INTEGRATION_ERROR",
@@ -75,6 +81,7 @@ public class GlobalExceptionHandler {
         for (FieldError error : ex.getBindingResult().getFieldErrors()) {
             errors.putIfAbsent(error.getField(), error.getDefaultMessage());
         }
+        log.warn("validation.failed method={} path={} fields={}", request.getMethod(), request.getRequestURI(), errors.keySet());
         return ResponseEntity.badRequest().body(
                 ErrorResponse.validation(
                         "Um ou mais campos são inválidos.",
@@ -127,7 +134,7 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ErrorResponse> handleGeneric(Exception ex,
                                                         HttpServletRequest request) {
-        log.error("Erro inesperado em {}", request.getRequestURI(), ex);
+        log.error("request.unexpected-error method={} path={}", request.getMethod(), request.getRequestURI(), ex);
         return build(
                 HttpStatus.INTERNAL_SERVER_ERROR,
                 "INTERNAL_ERROR",
@@ -141,7 +148,7 @@ public class GlobalExceptionHandler {
                                                 String message,
                                                 HttpServletRequest request) {
         if (status.is4xxClientError()) {
-            log.warn("{} em {}: {}", code, request.getRequestURI(), message);
+            log.warn("request.rejected code={} method={} path={} message={}", code, request.getMethod(), request.getRequestURI(), message);
         }
         return ResponseEntity.status(status).body(
                 ErrorResponse.of(code, message, status.value(), request.getRequestURI())
