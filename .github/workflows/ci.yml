@@ -60,3 +60,119 @@ jobs:
       - uses: actions/checkout@v4
       - name: Build container
         run: docker build -t ps-contrato:test .
+
+  empresa-contrato-integration:
+    needs: [unit-tests, migration-postgres]
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: mypetdb
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d mypetdb"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout PS_Contrato
+        uses: actions/checkout@v4
+
+      - name: Checkout PS_Empresa hardening
+        uses: actions/checkout@v4
+        with:
+          repository: LuisLipinski/PS_Empresa
+          ref: feature/ps-empresa-hardening-v1
+          path: ps-empresa
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Prepare PostgreSQL databases
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -d mypetdb -c "CREATE DATABASE pscontratodb;"
+
+      - name: Build both services
+        run: |
+          chmod +x ./mvnw ps-empresa/mvnw
+          ./mvnw -B clean package -DskipTests
+          (cd ps-empresa && ./mvnw -B clean package -DskipTests)
+
+      - name: Start PS_Empresa
+        env:
+          INTERNAL_API_KEY: mypetadmin-ci-internal-key
+          JWT_SECRET_KEY: mypetadmin-ci-jwt-secret-key-32chars
+        run: nohup java -jar ps-empresa/target/*.jar --spring.profiles.active=ci > ps-empresa.log 2>&1 &
+
+      - name: Start PS_Contrato
+        env:
+          DB_URL: jdbc:postgresql://localhost:5432/pscontratodb
+          DB_USERNAME: postgres
+          DB_PASSWORD: postgres
+          INTERNAL_API_KEY: mypetadmin-ci-internal-key
+          PS_EMPRESA_URL: http://localhost:8081
+        run: nohup java -jar target/*.jar > ps-contrato.log 2>&1 &
+
+      - name: Wait for both services
+        run: |
+          for port in 8081 8082; do
+            ready=false
+            for i in {1..40}; do
+              if curl -fsS "http://localhost:${port}/actuator/health" | grep -q UP; then
+                ready=true
+                break
+              fi
+              sleep 3
+            done
+            if [ "$ready" != "true" ]; then
+              echo "Serviço na porta ${port} não ficou pronto"
+              cat ps-empresa.log || true
+              cat ps-contrato.log || true
+              exit 1
+            fi
+          done
+
+      - name: Checkout automation
+        uses: actions/checkout@v4
+        with:
+          repository: LuisLipinski/ps_automacao_backend
+          ref: feature/ps-empresa-hardening-v1
+          path: qa-tests
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: qa-tests/package-lock.json
+
+      - name: Install automation dependencies
+        working-directory: qa-tests
+        run: npm ci
+
+      - name: Run cross-service lifecycle
+        working-directory: qa-tests
+        env:
+          PS_EMPRESA_URL: http://localhost:8081
+          PS_CONTRATO_URL: http://localhost:8082
+          PS_EMPRESA_INTERNAL_KEY: mypetadmin-ci-internal-key
+          PS_CONTRATO_INTERNAL_KEY: mypetadmin-ci-internal-key
+          RUN_DESTRUCTIVE_INTEGRATION: 'true'
+        run: npm run contrato:integration
+
+      - name: Print service logs on failure
+        if: failure()
+        run: |
+          cat ps-empresa.log || true
+          cat ps-contrato.log || true
