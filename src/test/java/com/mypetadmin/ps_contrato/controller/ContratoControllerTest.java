@@ -4,8 +4,10 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.mypetadmin.ps_contrato.dto.ContratoRequestDTO;
 import com.mypetadmin.ps_contrato.dto.ContratoResponseDTO;
 import com.mypetadmin.ps_contrato.dto.ContratoStatusUpdateDTO;
+import com.mypetadmin.ps_contrato.dto.PagamentoConfirmadoRequestDTO;
 import com.mypetadmin.ps_contrato.exception.ContratoNotFoundException;
 import com.mypetadmin.ps_contrato.exception.EmpresaNaoEncontradaException;
+import com.mypetadmin.ps_contrato.exception.PagamentoConfirmacaoInvalidaException;
 import com.mypetadmin.ps_contrato.exception.StatusContratoNotFoundException;
 import com.mypetadmin.ps_contrato.security.InternalRequestFilter;
 import com.mypetadmin.ps_contrato.security.SecurityConfig;
@@ -66,8 +68,9 @@ class ContratoControllerTest {
     @Test
     void criarContratoQuandoDadosValidosRetornaCreated() throws Exception {
         UUID empresaId = UUID.randomUUID();
+        UUID onboardingId = UUID.randomUUID();
         UUID contratoId = UUID.randomUUID();
-        ContratoRequestDTO requestDTO = new ContratoRequestDTO(empresaId);
+        ContratoRequestDTO requestDTO = new ContratoRequestDTO(empresaId, onboardingId);
 
         ContratoResponseDTO responseDTO = ContratoResponseDTO.builder()
                 .id(contratoId)
@@ -92,8 +95,11 @@ class ContratoControllerTest {
     }
 
     @Test
-    void criarContratoQuandoEmpresaIdNuloRetornaBadRequest() throws Exception {
-        ContratoRequestDTO requestDTO = ContratoRequestDTO.builder().empresaId(null).build();
+    void criarContratoQuandoOnboardingIdNuloRetornaBadRequest() throws Exception {
+        ContratoRequestDTO requestDTO = ContratoRequestDTO.builder()
+                .empresaId(UUID.randomUUID())
+                .onboardingId(null)
+                .build();
 
         mockMvc.perform(post("/contratos")
                         .header("X-Internal-Key", INTERNAL_KEY)
@@ -112,10 +118,62 @@ class ContratoControllerTest {
         mockMvc.perform(post("/contratos")
                         .header("X-Internal-Key", INTERNAL_KEY)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(new ContratoRequestDTO(empresaId))))
+                        .content(objectMapper.writeValueAsString(new ContratoRequestDTO(empresaId, UUID.randomUUID()))))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("EMPRESA_NOT_FOUND"))
                 .andExpect(jsonPath("$.message").value("Empresa não encontrada"));
+    }
+
+    @Test
+    void confirmarPagamentoQuandoDadosValidosRetornaOk() throws Exception {
+        UUID contratoId = UUID.randomUUID();
+        UUID paymentId = UUID.randomUUID();
+        PagamentoConfirmadoRequestDTO requestDTO = new PagamentoConfirmadoRequestDTO(paymentId, LocalDateTime.now());
+        ContratoResponseDTO responseDTO = ContratoResponseDTO.builder()
+                .id(contratoId)
+                .statusName("Ativo")
+                .build();
+
+        when(contratoService.confirmarPagamento(eq(contratoId), any(PagamentoConfirmadoRequestDTO.class)))
+                .thenReturn(responseDTO);
+
+        mockMvc.perform(post("/contratos/{id}/pagamentos/confirmacao", contratoId)
+                        .header("X-Internal-Key", INTERNAL_KEY)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(requestDTO)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.statusName").value("Ativo"));
+    }
+
+    @Test
+    void confirmarPagamentoQuandoPaymentIdNuloRetornaBadRequest() throws Exception {
+        UUID contratoId = UUID.randomUUID();
+        PagamentoConfirmadoRequestDTO requestDTO = PagamentoConfirmadoRequestDTO.builder()
+                .paidAt(LocalDateTime.now())
+                .build();
+
+        mockMvc.perform(post("/contratos/{id}/pagamentos/confirmacao", contratoId)
+                        .header("X-Internal-Key", INTERNAL_KEY)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(requestDTO)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
+    }
+
+    @Test
+    void confirmarPagamentoQuandoConflitaRetornaConflict() throws Exception {
+        UUID contratoId = UUID.randomUUID();
+        PagamentoConfirmadoRequestDTO requestDTO = new PagamentoConfirmadoRequestDTO(UUID.randomUUID(), LocalDateTime.now());
+
+        when(contratoService.confirmarPagamento(eq(contratoId), any(PagamentoConfirmadoRequestDTO.class)))
+                .thenThrow(new PagamentoConfirmacaoInvalidaException("Pagamento conflitante"));
+
+        mockMvc.perform(post("/contratos/{id}/pagamentos/confirmacao", contratoId)
+                        .header("X-Internal-Key", INTERNAL_KEY)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(requestDTO)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("PAYMENT_CONFIRMATION_CONFLICT"));
     }
 
     @Test
@@ -135,9 +193,9 @@ class ContratoControllerTest {
     void atualizarStatusQuandoContratoNaoExisteRetornaNotFound() throws Exception {
         UUID contratoId = UUID.randomUUID();
         ContratoStatusUpdateDTO requestDTO = new ContratoStatusUpdateDTO();
-        requestDTO.setStatusId(2L);
+        requestDTO.setStatusId(3L);
 
-        when(contratoService.atualizarStatus(eq(contratoId), eq(2L)))
+        when(contratoService.atualizarStatus(eq(contratoId), eq(3L)))
                 .thenThrow(new ContratoNotFoundException("Contrato não encontrado"));
 
         mockMvc.perform(patch("/contratos/{id}/status", contratoId)
