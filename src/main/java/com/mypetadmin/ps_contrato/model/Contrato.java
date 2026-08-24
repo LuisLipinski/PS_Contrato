@@ -22,12 +22,21 @@ public class Contrato {
     @Column(name = "empresa_id", nullable = false)
     private UUID empresaId;
 
+    @Column(name = "onboarding_id", unique = true)
+    private UUID onboardingId;
+
     @Column(name = "contract_number", nullable = false, unique = true)
     private String contractNumber;
 
     @ManyToOne
     @JoinColumn(name = "status_id", nullable = false)
     private StatusContrato status;
+
+    @Column(name = "activation_payment_id", unique = true)
+    private UUID activationPaymentId;
+
+    @Column(name = "data_pagamento_confirmado")
+    private LocalDateTime dataPagamentoConfirmado;
 
     @Builder.Default
     @Column(name = "data_criacao", nullable = false)
