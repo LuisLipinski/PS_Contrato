@@ -1,6 +1,7 @@
 package com.mypetadmin.ps_contrato.security;
 
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpStatus;
@@ -12,6 +13,7 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 
 @Configuration
 @RequiredArgsConstructor
+@Slf4j
 public class SecurityConfig {
 
     private final InternalRequestFilter internalRequestFilter;
@@ -30,11 +32,13 @@ public class SecurityConfig {
                 )
                 .exceptionHandling(exceptions -> exceptions
                         .authenticationEntryPoint((request, response, authException) -> {
+                            log.warn("security.unauthorized method={} path={}", request.getMethod(), request.getRequestURI());
                             response.setStatus(HttpStatus.UNAUTHORIZED.value());
                             response.setContentType(MediaType.APPLICATION_JSON_VALUE);
                             response.getWriter().write("{\"error\":\"unauthorized\"}");
                         })
                         .accessDeniedHandler((request, response, accessDeniedException) -> {
+                            log.warn("security.forbidden method={} path={}", request.getMethod(), request.getRequestURI());
                             response.setStatus(HttpStatus.FORBIDDEN.value());
                             response.setContentType(MediaType.APPLICATION_JSON_VALUE);
                             response.getWriter().write("{\"error\":\"forbidden\"}");
