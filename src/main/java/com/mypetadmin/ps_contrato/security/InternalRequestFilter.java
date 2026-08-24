@@ -4,6 +4,7 @@ import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
@@ -17,6 +18,7 @@ import java.security.MessageDigest;
 import java.util.List;
 
 @Component
+@Slf4j
 public class InternalRequestFilter extends OncePerRequestFilter {
 
     public static final String INTERNAL_KEY_HEADER = "X-Internal-Key";
@@ -40,6 +42,7 @@ public class InternalRequestFilter extends OncePerRequestFilter {
                     List.of(new SimpleGrantedAuthority("ROLE_INTERNAL"))
             );
             SecurityContextHolder.getContext().setAuthentication(authentication);
+            log.debug("security.internal authenticated method={} path={}", request.getMethod(), request.getRequestURI());
         }
 
         filterChain.doFilter(request, response);
