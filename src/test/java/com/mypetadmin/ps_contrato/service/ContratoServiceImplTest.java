@@ -40,6 +40,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -236,7 +237,8 @@ class ContratoServiceImplTest {
         Contrato contrato = contrato(contratoId, aguardando);
         when(contratoRepository.findById(contratoId)).thenReturn(Optional.of(contrato));
         when(statusContratoRepository.findById(StatusContratoId.ATIVO)).thenReturn(Optional.of(ativo));
-        when(empresaClient.sincronizarStatusContrato(any())).thenThrow(mock(FeignException.class));
+        doThrow(mock(FeignException.class))
+                .when(empresaClient).sincronizarStatusContrato(any(EmpresaContratoStatusDTO.class));
 
         assertThatThrownBy(() -> contratoService.atualizarStatus(contratoId, StatusContratoId.ATIVO))
                 .isInstanceOf(IntegracaoEmpresaException.class);
