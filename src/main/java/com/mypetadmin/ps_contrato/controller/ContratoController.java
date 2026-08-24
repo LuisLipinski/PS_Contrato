@@ -3,6 +3,7 @@ package com.mypetadmin.ps_contrato.controller;
 import com.mypetadmin.ps_contrato.dto.ContratoRequestDTO;
 import com.mypetadmin.ps_contrato.dto.ContratoResponseDTO;
 import com.mypetadmin.ps_contrato.dto.ContratoStatusUpdateDTO;
+import com.mypetadmin.ps_contrato.dto.PagamentoConfirmadoRequestDTO;
 import com.mypetadmin.ps_contrato.enums.DirectionField;
 import com.mypetadmin.ps_contrato.enums.SortField;
 import com.mypetadmin.ps_contrato.service.ContratoService;
@@ -43,11 +44,11 @@ public class ContratoController {
     private final ContratoService contratoService;
 
     @PostMapping
-    @Operation(summary = "Cria contrato para uma empresa com status AGUARDANDO_PAGAMENTO")
+    @Operation(summary = "Cria contrato após conclusão do onboarding")
     @ApiResponses(value = {
-            @ApiResponse(responseCode = "201", description = "Contrato criado com sucesso."),
+            @ApiResponse(responseCode = "201", description = "Contrato criado ou replay idempotente concluído com sucesso."),
             @ApiResponse(responseCode = "404", description = "Empresa não encontrada."),
-            @ApiResponse(responseCode = "409", description = "Já existe contrato não-inativo para a empresa."),
+            @ApiResponse(responseCode = "409", description = "Conflito de contrato ou onboarding."),
             @ApiResponse(responseCode = "502", description = "Falha de integração com PS_Empresa.")
     })
     public ResponseEntity<ContratoResponseDTO> criarContrato(@Valid @RequestBody ContratoRequestDTO request) {
@@ -59,12 +60,26 @@ public class ContratoController {
         return ResponseEntity.created(location).body(contrato);
     }
 
+    @PostMapping("/{id}/pagamentos/confirmacao")
+    @Operation(summary = "Confirma pagamento e ativa o contrato quando elegível")
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Pagamento confirmado ou replay idempotente processado."),
+            @ApiResponse(responseCode = "404", description = "Contrato ou status não encontrado."),
+            @ApiResponse(responseCode = "409", description = "Confirmação de pagamento incompatível com o contrato."),
+            @ApiResponse(responseCode = "502", description = "Falha de integração com PS_Empresa.")
+    })
+    public ResponseEntity<ContratoResponseDTO> confirmarPagamento(
+            @PathVariable UUID id,
+            @Valid @RequestBody PagamentoConfirmadoRequestDTO request) {
+        return ResponseEntity.ok(contratoService.confirmarPagamento(id, request));
+    }
+
     @PatchMapping("/{id}/status")
-    @Operation(summary = "Atualiza o status do contrato")
+    @Operation(summary = "Atualiza administrativamente o status do contrato; ativação depende de pagamento")
     @ApiResponses(value = {
             @ApiResponse(responseCode = "200", description = "Status atualizado com sucesso."),
             @ApiResponse(responseCode = "404", description = "Contrato ou status não encontrado."),
-            @ApiResponse(responseCode = "409", description = "Transição de status inválida."),
+            @ApiResponse(responseCode = "409", description = "Transição administrativa inválida."),
             @ApiResponse(responseCode = "502", description = "Falha de integração com PS_Empresa.")
     })
     public ResponseEntity<ContratoResponseDTO> atualizarStatus(@PathVariable UUID id,
