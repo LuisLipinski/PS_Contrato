@@ -14,6 +14,7 @@ public class ContratoMapper {
 
         return Contrato.builder()
                 .empresaId(dto.getEmpresaId())
+                .onboardingId(dto.getOnboardingId())
                 .status(status)
                 .build();
     }
