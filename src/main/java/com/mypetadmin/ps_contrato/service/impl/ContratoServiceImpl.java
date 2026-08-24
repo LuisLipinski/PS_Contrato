@@ -5,11 +5,13 @@ import com.mypetadmin.ps_contrato.dto.ContratoRequestDTO;
 import com.mypetadmin.ps_contrato.dto.ContratoResponseDTO;
 import com.mypetadmin.ps_contrato.dto.EmpresaContratoStatusDTO;
 import com.mypetadmin.ps_contrato.dto.EmpresaStatusResponseDTO;
+import com.mypetadmin.ps_contrato.dto.PagamentoConfirmadoRequestDTO;
 import com.mypetadmin.ps_contrato.enums.StatusContratoId;
 import com.mypetadmin.ps_contrato.exception.ContratoExistenteException;
 import com.mypetadmin.ps_contrato.exception.ContratoNotFoundException;
 import com.mypetadmin.ps_contrato.exception.EmpresaNaoEncontradaException;
 import com.mypetadmin.ps_contrato.exception.IntegracaoEmpresaException;
+import com.mypetadmin.ps_contrato.exception.PagamentoConfirmacaoInvalidaException;
 import com.mypetadmin.ps_contrato.exception.StatusContratoNotFoundException;
 import com.mypetadmin.ps_contrato.exception.TransicaoStatusInvalidaException;
 import com.mypetadmin.ps_contrato.mapper.ContratoMapper;
@@ -18,8 +20,9 @@ import com.mypetadmin.ps_contrato.model.StatusContrato;
 import com.mypetadmin.ps_contrato.repository.ContratoRepository;
 import com.mypetadmin.ps_contrato.repository.ContratoSpecification;
 import com.mypetadmin.ps_contrato.repository.StatusContratoRepository;
+import com.mypetadmin.ps_contrato.service.ContratoNumeroGenerator;
 import com.mypetadmin.ps_contrato.service.ContratoService;
-import com.mypetadmin.ps_contrato.util.GerarNumeroContratoUtil;
+import com.mypetadmin.ps_contrato.service.OnboardingLockService;
 import feign.FeignException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -43,25 +46,43 @@ public class ContratoServiceImpl implements ContratoService {
     private final StatusContratoRepository statusContratoRepository;
     private final EmpresaClient empresaClient;
     private final ContratoMapper mapper;
+    private final ContratoNumeroGenerator numeroGenerator;
+    private final OnboardingLockService onboardingLockService;
 
     @Override
     @Transactional
     public ContratoResponseDTO criarContrato(ContratoRequestDTO dto) {
+        log.debug("contract.create requested empresaId={} onboardingId={}", dto.getEmpresaId(), dto.getOnboardingId());
+
+        onboardingLockService.lock(dto.getOnboardingId());
+
+        Contrato contratoIdempotente = contratoRepository.findByOnboardingId(dto.getOnboardingId()).orElse(null);
+        if (contratoIdempotente != null) {
+            if (!contratoIdempotente.getEmpresaId().equals(dto.getEmpresaId())) {
+                log.warn(
+                        "contract.create onboarding-conflict onboardingId={} existingEmpresaId={} requestedEmpresaId={}",
+                        dto.getOnboardingId(), contratoIdempotente.getEmpresaId(), dto.getEmpresaId()
+                );
+                throw new ContratoExistenteException("Onboarding já associado a outra empresa.");
+            }
+
+            log.debug(
+                    "contract.create idempotent-replay onboardingId={} contractId={}",
+                    dto.getOnboardingId(), contratoIdempotente.getId()
+            );
+            return mapper.toResponseDto(contratoIdempotente);
+        }
+
         validarEmpresa(dto.getEmpresaId());
         validarContratoAbertoExistente(dto.getEmpresaId());
 
-        String prefixo = String.format("%04d%02d", LocalDate.now().getYear(), LocalDate.now().getMonthValue());
-        Contrato ultimoContrato = contratoRepository.findTopByContractNumberStartingWithOrderByContractNumberDesc(prefixo);
-        long sequencial = ultimoContrato == null
-                ? 1L
-                : Long.parseLong(ultimoContrato.getContractNumber().substring(6)) + 1L;
-
-        String numeroContrato = GerarNumeroContratoUtil.gerarNumeroContrato(sequencial);
+        String numeroContrato = numeroGenerator.gerarProximoNumero();
         StatusContrato statusInicial = statusContratoRepository.findById(StatusContratoId.AGUARDANDO_PAGAMENTO)
                 .orElseThrow(() -> new StatusContratoNotFoundException("Status inicial AGUARDANDO_PAGAMENTO não encontrado"));
 
         Contrato contrato = Contrato.builder()
                 .empresaId(dto.getEmpresaId())
+                .onboardingId(dto.getOnboardingId())
                 .contractNumber(numeroContrato)
                 .status(statusInicial)
                 .dataCriacao(LocalDateTime.now())
@@ -71,11 +92,68 @@ public class ContratoServiceImpl implements ContratoService {
         try {
             contratoRepository.saveAndFlush(contrato);
         } catch (DataIntegrityViolationException ex) {
-            throw new ContratoExistenteException("Conflito ao criar contrato para a empresa " + dto.getEmpresaId(), ex);
+            throw new ContratoExistenteException("Conflito ao criar contrato para a empresa informada.", ex);
         }
 
         sincronizarEmpresa(contrato.getEmpresaId(), statusInicial.getId());
-        log.info("Contrato {} criado para empresa {} com status AGUARDANDO_PAGAMENTO", numeroContrato, contrato.getEmpresaId());
+        log.info(
+                "contract.create success contractId={} contractNumber={} empresaId={} onboardingId={} status=AGUARDANDO_PAGAMENTO",
+                contrato.getId(), numeroContrato, contrato.getEmpresaId(), contrato.getOnboardingId()
+        );
+
+        return mapper.toResponseDto(contrato);
+    }
+
+    @Override
+    @Transactional
+    public ContratoResponseDTO confirmarPagamento(UUID id, PagamentoConfirmadoRequestDTO request) {
+        Contrato contrato = contratoRepository.findById(id)
+                .orElseThrow(() -> new ContratoNotFoundException("Contrato com o id " + id + " não foi encontrado"));
+
+        UUID paymentId = request.getPaymentId();
+        UUID paymentRegistrado = contrato.getActivationPaymentId();
+
+        if (paymentRegistrado != null) {
+            if (paymentRegistrado.equals(paymentId)) {
+                log.debug(
+                        "contract.payment idempotent-replay contractId={} paymentId={} currentStatus={}",
+                        contrato.getId(), paymentId, contrato.getStatus().getId()
+                );
+                return mapper.toResponseDto(contrato);
+            }
+
+            throw new PagamentoConfirmacaoInvalidaException(
+                    "Contrato já possui uma confirmação de pagamento diferente registrada."
+            );
+        }
+
+        if (!StatusContratoId.AGUARDANDO_PAGAMENTO.equals(contrato.getStatus().getId())) {
+            throw new PagamentoConfirmacaoInvalidaException(
+                    "Pagamento só pode ativar contrato em AGUARDANDO_PAGAMENTO."
+            );
+        }
+
+        StatusContrato statusAtivo = statusContratoRepository.findById(StatusContratoId.ATIVO)
+                .orElseThrow(() -> new StatusContratoNotFoundException("Status ATIVO não encontrado"));
+
+        contrato.setActivationPaymentId(paymentId);
+        contrato.setDataPagamentoConfirmado(request.getPaidAt());
+        contrato.setStatus(statusAtivo);
+        contrato.setDataAtualizacaoStatus(LocalDateTime.now());
+
+        try {
+            contratoRepository.saveAndFlush(contrato);
+        } catch (DataIntegrityViolationException ex) {
+            throw new PagamentoConfirmacaoInvalidaException(
+                    "A confirmação de pagamento conflita com outro contrato.", ex
+            );
+        }
+
+        sincronizarEmpresa(contrato.getEmpresaId(), StatusContratoId.ATIVO);
+        log.info(
+                "contract.payment confirmed contractId={} empresaId={} paymentId={} status=ATIVO",
+                contrato.getId(), contrato.getEmpresaId(), paymentId
+        );
 
         return mapper.toResponseDto(contrato);
     }
@@ -91,17 +169,21 @@ public class ContratoServiceImpl implements ContratoService {
 
         Long statusAtual = contrato.getStatus().getId();
         if (statusAtual.equals(novoStatus.getId())) {
+            log.debug("contract.status idempotent-replay contractId={} status={}", contrato.getId(), statusAtual);
             return mapper.toResponseDto(contrato);
         }
 
-        validarTransicaoStatus(statusAtual, novoStatus.getId());
+        validarTransicaoStatusAdministrativa(statusAtual, novoStatus.getId());
 
         contrato.setStatus(novoStatus);
         contrato.setDataAtualizacaoStatus(LocalDateTime.now());
         contratoRepository.saveAndFlush(contrato);
 
         sincronizarEmpresa(contrato.getEmpresaId(), novoStatus.getId());
-        log.info("Contrato {} alterado do status {} para {}", contrato.getContractNumber(), statusAtual, novoStatus.getId());
+        log.info(
+                "contract.status changed contractId={} empresaId={} previousStatus={} currentStatus={}",
+                contrato.getId(), contrato.getEmpresaId(), statusAtual, novoStatus.getId()
+        );
 
         return mapper.toResponseDto(contrato);
     }
@@ -112,6 +194,7 @@ public class ContratoServiceImpl implements ContratoService {
             if (empresa == null || empresa.id() == null || !empresaId.equals(empresa.id())) {
                 throw new IntegracaoEmpresaException("Resposta inválida do PS_Empresa ao validar empresa " + empresaId, null);
             }
+            log.debug("contract.company validated empresaId={} empresaStatus={}", empresaId, empresa.status());
         } catch (FeignException.NotFound ex) {
             throw new EmpresaNaoEncontradaException("Empresa com ID " + empresaId + " não encontrada");
         } catch (FeignException ex) {
@@ -125,6 +208,10 @@ public class ContratoServiceImpl implements ContratoService {
                 .orElse(null);
 
         if (contratoExistente != null && !StatusContratoId.INATIVO.equals(contratoExistente.getStatus().getId())) {
+            log.warn(
+                    "contract.create rejected empresaId={} existingContractId={} existingStatus={}",
+                    empresaId, contratoExistente.getId(), contratoExistente.getStatus().getId()
+            );
             throw new ContratoExistenteException(
                     "Já existe um contrato com status " + contratoExistente.getStatus().getStatusName() + " para esta empresa"
             );
@@ -135,6 +222,7 @@ public class ContratoServiceImpl implements ContratoService {
         String statusContrato = statusCallback(statusId);
         try {
             empresaClient.sincronizarStatusContrato(new EmpresaContratoStatusDTO(empresaId, statusContrato));
+            log.debug("contract.company-status synchronized empresaId={} contractStatus={}", empresaId, statusContrato);
         } catch (FeignException ex) {
             throw new IntegracaoEmpresaException("Falha ao sincronizar status do contrato com o PS_Empresa", ex);
         }
@@ -153,18 +241,16 @@ public class ContratoServiceImpl implements ContratoService {
         throw new StatusContratoNotFoundException("Status com o id " + statusId + " não possui mapeamento de integração");
     }
 
-    private void validarTransicaoStatus(Long statusAtual, Long novoStatus) {
-        if (StatusContratoId.AGUARDANDO_PAGAMENTO.equals(statusAtual)
-                && StatusContratoId.ATIVO.equals(novoStatus)) {
-            return;
-        }
-
+    private void validarTransicaoStatusAdministrativa(Long statusAtual, Long novoStatus) {
         if (StatusContratoId.ATIVO.equals(statusAtual)
                 && StatusContratoId.INATIVO.equals(novoStatus)) {
             return;
         }
 
-        throw new TransicaoStatusInvalidaException("Transição de status inválida: " + statusAtual + " -> " + novoStatus);
+        throw new TransicaoStatusInvalidaException(
+                "Transição administrativa de status inválida: " + statusAtual + " -> " + novoStatus
+                        + ". A ativação depende de confirmação de pagamento."
+        );
     }
 
     @Override
@@ -187,6 +273,12 @@ public class ContratoServiceImpl implements ContratoService {
                 dataFim
         );
 
-        return contratoRepository.findAll(spec, pageable).map(mapper::toResponseDto);
+        Page<ContratoResponseDTO> result = contratoRepository.findAll(spec, pageable).map(mapper::toResponseDto);
+        log.debug(
+                "contract.search success page={} size={} total={} filteredByEmpresa={} filteredByNumber={} filteredByStatus={} filteredByDateRange={}",
+                result.getNumber(), result.getSize(), result.getTotalElements(), empresaId != null,
+                numeroContrato != null, status != null, dataInicio != null || dataFim != null
+        );
+        return result;
     }
 }
