@@ -16,4 +16,7 @@ public class ContratoRequestDTO {
 
     @NotNull
     private UUID empresaId;
+
+    @NotNull
+    private UUID onboardingId;
 }
