@@ -1,5 +1,6 @@
 package com.mypetadmin.ps_contrato.security;
 
+import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Bean;
@@ -32,7 +33,7 @@ public class SecurityConfig {
                 )
                 .exceptionHandling(exceptions -> exceptions
                         .authenticationEntryPoint((request, response, authException) -> {
-                            log.warn("security.unauthorized method={} path={}", request.getMethod(), request.getRequestURI());
+                            logUnauthorized(request);
                             response.setStatus(HttpStatus.UNAUTHORIZED.value());
                             response.setContentType(MediaType.APPLICATION_JSON_VALUE);
                             response.getWriter().write("{\"error\":\"unauthorized\"}");
@@ -46,5 +47,17 @@ public class SecurityConfig {
                 )
                 .addFilterBefore(internalRequestFilter, UsernamePasswordAuthenticationFilter.class)
                 .build();
+    }
+
+    private void logUnauthorized(HttpServletRequest request) {
+        String path = request.getRequestURI();
+        String method = request.getMethod();
+
+        if ("/".equals(path) && ("GET".equals(method) || "HEAD".equals(method))) {
+            log.debug("security.unauthorized platform-probe method={} path={}", method, path);
+            return;
+        }
+
+        log.warn("security.unauthorized method={} path={}", method, path);
     }
 }
