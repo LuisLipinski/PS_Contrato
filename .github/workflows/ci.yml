@@ -84,11 +84,11 @@ jobs:
       - name: Checkout PS_Contrato
         uses: actions/checkout@v4
 
-      - name: Checkout PS_Empresa hardening
+      - name: Checkout PS_Empresa master
         uses: actions/checkout@v4
         with:
           repository: LuisLipinski/PS_Empresa
-          ref: feature/ps-empresa-hardening-v1
+          ref: master
           path: ps-empresa
 
       - name: Setup Java
