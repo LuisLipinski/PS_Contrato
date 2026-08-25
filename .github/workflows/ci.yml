@@ -183,6 +183,8 @@ jobs:
             qa-tests/playwright-output.txt
             qa-tests/playwright-report
             qa-tests/test-results
+            ps-contrato.log
+            ps-empresa.log
           if-no-files-found: warn
 
       - name: Print service logs on failure
