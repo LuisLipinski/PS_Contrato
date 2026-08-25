@@ -2,6 +2,7 @@ package com.mypetadmin.ps_contrato.service;
 
 import com.mypetadmin.ps_contrato.dto.ContratoRequestDTO;
 import com.mypetadmin.ps_contrato.dto.ContratoResponseDTO;
+import com.mypetadmin.ps_contrato.dto.PagamentoConfirmadoRequestDTO;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotNull;
 import org.springframework.data.domain.Page;
@@ -12,6 +13,8 @@ import java.util.UUID;
 
 public interface ContratoService {
     ContratoResponseDTO criarContrato(@Valid ContratoRequestDTO contratoRequestDTO);
+
+    ContratoResponseDTO confirmarPagamento(UUID id, @Valid PagamentoConfirmadoRequestDTO request);
 
     ContratoResponseDTO atualizarStatus(UUID id, @NotNull(message = "O Status não pode ser nulo") Long statusId);
 

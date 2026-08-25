@@ -1,21 +1,18 @@
 package com.mypetadmin.ps_contrato.util;
 
-import com.mypetadmin.ps_contrato.model.Contrato;
-
-import java.time.LocalDate;
-import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
-
-public class GerarNumeroContratoUtil {
-    private static final DateTimeFormatter FORMATTER = DateTimeFormatter.ofPattern("yyyyMM");
+public final class GerarNumeroContratoUtil {
 
     private GerarNumeroContratoUtil() {
-
     }
-    public static String gerarNumeroContrato(long sequencial) {
-        LocalDate hoje = LocalDate.now();
-        String prefixo = hoje.format(FORMATTER);
-        String sequencialFormatado = String.format("%06d", sequencial);
-        return prefixo + sequencialFormatado;
+
+    public static String gerarNumeroContrato(String periodo, long sequencial) {
+        if (periodo == null || !periodo.matches("\\d{6}")) {
+            throw new IllegalArgumentException("Período do contrato deve estar no formato yyyyMM.");
+        }
+        if (sequencial < 1 || sequencial > 999999) {
+            throw new IllegalArgumentException("Sequencial do contrato deve estar entre 1 e 999999.");
+        }
+
+        return periodo + String.format("%06d", sequencial);
     }
 }

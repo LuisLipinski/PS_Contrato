@@ -10,7 +10,7 @@ import java.util.UUID;
 
 public interface ContratoRepository extends JpaRepository<Contrato, UUID>, JpaSpecificationExecutor<Contrato> {
 
-    Contrato findTopByContractNumberStartingWithOrderByContractNumberDesc(String prefixo);
+    Optional<Contrato> findByOnboardingId(@NotNull UUID onboardingId);
 
     Optional<Contrato> findTopByEmpresaIdOrderByDataCriacaoDesc(@NotNull UUID empresaId);
 }

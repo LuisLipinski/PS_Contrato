@@ -1,5 +1,6 @@
 package com.mypetadmin.ps_contrato.exception;
 
+import jakarta.servlet.http.HttpServletRequest;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
@@ -10,82 +11,108 @@ import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
 
-import java.util.Map;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+class GlobalExceptionHandlerTest {
 
-public class GlobalExceptionHandlerTest {
     private GlobalExceptionHandler handler;
+    private HttpServletRequest request;
 
     @BeforeEach
     void setUp() {
         handler = new GlobalExceptionHandler();
+        request = mock(HttpServletRequest.class);
+        when(request.getRequestURI()).thenReturn("/contratos");
     }
 
     @Test
-    void handleEmpresaNaoEncontrada_retornaNotFound() {
-        EmpresaNaoEncontradaException ex = new EmpresaNaoEncontradaException("Empresa não encontrada");
-        ResponseEntity<Map<String, String>> response = handler.handleEmpresaNaoEncontrada(ex);
+    void empresaNaoEncontradaRetornaNotFoundPadronizado() {
+        ResponseEntity<ErrorResponse> response = handler.handleEmpresaNaoEncontrada(
+                new EmpresaNaoEncontradaException("Empresa não encontrada"), request);
 
-        assertEquals(HttpStatus.NOT_FOUND, response.getStatusCode());
-        assertEquals("Empresa não encontrada", response.getBody().get("error"));
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        assertThat(response.getBody()).isNotNull();
+        assertThat(response.getBody().getCode()).isEqualTo("EMPRESA_NOT_FOUND");
     }
 
     @Test
-    void handleIllegalArgument_retornaBadRequest() {
-        IllegalArgumentException ex = new IllegalArgumentException("Argumento inválido");
-        ResponseEntity<String> response = handler.handleIllegalArgument(ex);
+    void contratoExistenteRetornaConflict() {
+        ResponseEntity<ErrorResponse> response = handler.handleContratoExistente(
+                new ContratoExistenteException("Contrato existente"), request);
 
-        assertEquals(HttpStatus.BAD_REQUEST, response.getStatusCode());
-        assertEquals("Argumento inválido", response.getBody());
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(response.getBody().getCode()).isEqualTo("CONTRATO_ALREADY_EXISTS");
     }
 
     @Test
-    void handleGeneric_retornaInternalServerError() {
-        Exception ex = new Exception("Erro inesperado");
-        ResponseEntity<String> response = handler.handleGeneric(ex);
+    void transicaoInvalidaRetornaConflict() {
+        ResponseEntity<ErrorResponse> response = handler.handleTransicaoInvalida(
+                new TransicaoStatusInvalidaException("Transição inválida"), request);
 
-        assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, response.getStatusCode());
-        assertEquals("Erro interno no servidor. Tente novamente mais tarde.", response.getBody());
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(response.getBody().getCode()).isEqualTo("INVALID_STATUS_TRANSITION");
     }
 
     @Test
-    void handleValidationErrors_retornaListaDeErros() {
-        BeanPropertyBindingResult bindingResult =
-                new BeanPropertyBindingResult(new Object(), "contratoRequest");
+    void falhaDeIntegracaoRetornaBadGatewaySemExporCausa() {
+        ResponseEntity<ErrorResponse> response = handler.handleIntegracaoEmpresa(
+                new IntegracaoEmpresaException("detalhe interno", new RuntimeException("segredo técnico")), request);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_GATEWAY);
+        assertThat(response.getBody().getCode()).isEqualTo("PS_EMPRESA_INTEGRATION_ERROR");
+        assertThat(response.getBody().getMessage()).doesNotContain("segredo técnico");
+    }
+
+    @Test
+    void illegalArgumentRetornaBadRequest() {
+        ResponseEntity<ErrorResponse> response = handler.handleIllegalArgument(
+                new IllegalArgumentException("Argumento inválido"), request);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(response.getBody().getCode()).isEqualTo("INVALID_ARGUMENT");
+    }
+
+    @Test
+    void validationErrorsRetornaMapaDeCampos() {
+        BeanPropertyBindingResult bindingResult = new BeanPropertyBindingResult(new Object(), "contratoRequest");
         bindingResult.addError(new FieldError("contratoRequest", "empresaId", "não pode ser nulo"));
+        MethodArgumentNotValidException ex = new MethodArgumentNotValidException(null, bindingResult);
 
-        MethodArgumentNotValidException ex =
-                new MethodArgumentNotValidException(null, bindingResult);
+        ResponseEntity<ErrorResponse> response = handler.handleValidationErrors(ex, request);
 
-        ResponseEntity<Map<String, String>> response = handler.handleValidationErrors(ex);
-
-        assertEquals(HttpStatus.BAD_REQUEST, response.getStatusCode());
-        assertTrue(response.getBody().containsKey("empresaId"));
-        assertEquals("não pode ser nulo", response.getBody().get("empresaId"));
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(response.getBody().getCode()).isEqualTo("VALIDATION_ERROR");
+        assertThat(response.getBody().getErrors()).containsEntry("empresaId", "não pode ser nulo");
     }
 
     @Test
-    void handleMissingParams_retornaBadRequest() {
-        MissingServletRequestParameterException ex =
-                new MissingServletRequestParameterException("empresaId", "String");
+    void missingParameterRetornaBadRequest() {
+        MissingServletRequestParameterException ex = new MissingServletRequestParameterException("empresaId", "String");
 
-        ResponseEntity<Map<String, String>> response = handler.handleMissingParams(ex);
+        ResponseEntity<ErrorResponse> response = handler.handleMissingParams(ex, request);
 
-        assertEquals(HttpStatus.BAD_REQUEST, response.getStatusCode());
-        assertTrue(response.getBody().get("error").contains("empresaId"));
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(response.getBody().getCode()).isEqualTo("MISSING_PARAMETER");
     }
 
     @Test
-    void handleHttpMessageNotReadable_retornaBadRequest() {
-        HttpMessageNotReadableException ex =
-                new HttpMessageNotReadableException("JSON mal formatado");
+    void unreadableBodyRetornaBadRequest() {
+        HttpMessageNotReadableException ex = new HttpMessageNotReadableException("JSON mal formatado");
 
-        ResponseEntity<Map<String, String>> response = handler.handleHttpMessageNotReadable(ex);
+        ResponseEntity<ErrorResponse> response = handler.handleUnreadableBody(ex, request);
 
-        assertEquals(HttpStatus.BAD_REQUEST, response.getStatusCode());
-        assertTrue(response.getBody().containsKey("error"));
-        assertEquals("Corpo da requisição ausente ou inválido.", response.getBody().get("error"));
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(response.getBody().getCode()).isEqualTo("INVALID_REQUEST_BODY");
+    }
+
+    @Test
+    void genericErrorNaoExpoeMensagemInterna() {
+        ResponseEntity<ErrorResponse> response = handler.handleGeneric(new Exception("detalhe interno"), request);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.INTERNAL_SERVER_ERROR);
+        assertThat(response.getBody().getCode()).isEqualTo("INTERNAL_ERROR");
+        assertThat(response.getBody().getMessage()).isEqualTo("Erro interno no servidor. Tente novamente mais tarde.");
     }
 }

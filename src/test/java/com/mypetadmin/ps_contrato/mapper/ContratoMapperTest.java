@@ -24,8 +24,10 @@ public class ContratoMapperTest {
     @Test
     void toEntity_deveConverterRequestParaContrato() {
         UUID empresaId = UUID.randomUUID();
+        UUID onboardingId = UUID.randomUUID();
         ContratoRequestDTO dto = ContratoRequestDTO.builder()
                 .empresaId(empresaId)
+                .onboardingId(onboardingId)
                 .build();
 
         StatusContrato status = StatusContrato.builder()
@@ -36,6 +38,7 @@ public class ContratoMapperTest {
 
         assertThat(contrato).isNotNull();
         assertThat(contrato.getEmpresaId()).isEqualTo(empresaId);
+        assertThat(contrato.getOnboardingId()).isEqualTo(onboardingId);
         assertThat(contrato.getStatus()).isEqualTo(status);
     }
 
@@ -88,7 +91,7 @@ public class ContratoMapperTest {
                 .id(UUID.randomUUID())
                 .empresaId(UUID.randomUUID())
                 .contractNumber("CT-99999")
-                .status(null) // <-- status nulo
+                .status(null)
                 .dataCriacao(LocalDateTime.now())
                 .build();
 

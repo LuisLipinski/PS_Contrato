@@ -1,198 +1,209 @@
-# PS_Contrato – Documentação Técnica
+# PS_Contrato — My Pet Admin
 
-## 📌 Visão Geral
+Microsserviço responsável pelo ciclo de vida dos contratos do My Pet Admin.
 
-O **PS_Contrato** é o microsserviço responsável pela **gestão completa do ciclo de vida dos contratos** das empresas no sistema **MyPetAdmin**.
+## Responsabilidade de domínio
 
-Ele garante regras de negócio críticas relacionadas à criação, status e consulta de contratos, atuando de forma integrada com o microsserviço **PS_empresa**.
+O PS_Contrato é o dono das regras contratuais. Ele não cria empresas nem usuários e não orquestra onboarding.
 
----
+Fluxo alvo:
 
-## 🎯 Responsabilidades
+```text
+Onboarding Orchestrator
+        |
+        +--> PS_Empresa
+        +--> PS_User
+        +--> PS_Contrato
 
-* Criar contratos para empresas
-* Gerar número de contrato único e sequencial
-* Controlar e validar transições de status do contrato
-* Impedir múltiplos contratos ativos por empresa
-* Disponibilizar consulta de contratos com filtros, ordenação e paginação
-
----
-
-## 🧱 Arquitetura e Dependências
-
-### Dependências Externas
-
-* **PS_empresa**
-
-    * Validação da existência da empresa via OpenFeign
-
-### Tecnologias Utilizadas
-
-* Java 21
-* Spring Boot 3
-* Spring Data JPA
-* OpenFeign
-* Hibernate
-* H2 (ambiente de testes)
-* PostgreSQL  (produção)
-* Swagger / OpenAPI
-
----
-
-## 🗂 Modelo de Domínio
-
-### Entidade: Contrato
-
-| Campo                 | Tipo           | Descrição                       |
-| --------------------- | -------------- | ------------------------------- |
-| id                    | UUID           | Identificador único do contrato |
-| empresaId             | UUID           | ID da empresa vinculada         |
-| contractNumber        | String         | Número único do contrato        |
-| status                | StatusContrato | Status atual do contrato        |
-| dataCriacao           | LocalDateTime  | Data de criação                 |
-| dataAtualizacaoStatus | LocalDateTime  | Última atualização de status    |
-
-### Entidade: StatusContrato
-
-| Campo      | Tipo   | Descrição               |
-| ---------- | ------ | ----------------------- |
-| id         | Long   | Identificador do status |
-| statusName | String | Nome do status          |
-| descricao  | String | Descrição do status     |
-
----
-
-## 📜 Regras de Negócio
-
-1. Uma empresa pode possuir **apenas um contrato ativo ou aguardando pagamento**.
-2. Um novo contrato **só pode ser criado** se o último contrato estiver com status **INATIVO**.
-3. Todo contrato é criado com status inicial **AGUARDANDO_PAGAMENTO**.
-4. Transições de status permitidas:
-
-    * **AGUARDANDO_PAGAMENTO → ATIVO**
-    * **ATIVO → INATIVO**
-5. Qualquer outra transição é considerada **inválida** e gera exceção.
-
----
-
-## 🔗 Endpoints da API
-
-### Criar Contrato
-
-**POST** `/contratos/criarContrato`
-
-* Cria um novo contrato para uma empresa
-* Status inicial: `AGUARDANDO_PAGAMENTO`
-
----
-
-### Atualizar Status do Contrato
-
-**PUT** `/contratos/{id}/status`
-
-* Atualiza o status de um contrato existente
-* Valida regras de transição
-
----
-
-### Buscar Contratos
-
-**GET** `/contratos`
-
-Permite consulta de contratos com **filtros, ordenação e paginação**.
-
-#### Filtros disponíveis:
-
-* `empresaId`
-* `numeroContrato`
-* `status`
-* `dataInicio`
-* `dataFim`
-
-#### Ordenação:
-
-* `sortField`:
-
-    * DATA_CRIACAO
-    * NUMERO_CONTRATO
-    * STATUS
-    * EMPRESA_ID
-
-* `direction`:
-
-    * ASC
-    * DESC
-
-#### Paginação:
-
-* `page` (default: 0)
-* `size` (default: 10)
-
-Exemplo:
-
-```
-GET /contratos?page=0&size=10&sortField=DATA_CRIACAO&direction=DESC
+PS_Payment --pagamento confirmado--> PS_Contrato --status--> PS_Empresa
 ```
 
----
+Nesta fase, a automação de API representa os futuros chamadores internos.
 
-## ⚙️ Filtros Dinâmicos
+## Regras principais
 
-A busca de contratos utiliza **Specification (Criteria API)**, permitindo:
+- Um contrato é criado somente após a empresa existir no PS_Empresa.
+- A criação recebe `empresaId` e `onboardingId`.
+- O mesmo `onboardingId` para a mesma empresa é idempotente e retorna o mesmo contrato.
+- Um `onboardingId` não pode ser reutilizado para outra empresa.
+- Uma empresa pode possuir no máximo um contrato não inativo.
+- O número do contrato segue `yyyyMM` + sequência mensal de 6 dígitos, por exemplo `202608000001`.
+- A sequência é gerada atomicamente no PostgreSQL e suporta concorrência entre instâncias.
+- Novo contrato nasce em `AGUARDANDO_PAGAMENTO`.
+- A ativação não pode ser feita pelo endpoint administrativo de status.
+- A ativação ocorre por confirmação semântica de pagamento.
+- O mesmo `paymentId` é idempotente.
+- Um pagamento diferente para um contrato já confirmado gera conflito.
+- Retry tardio do pagamento original não reativa contrato `INATIVO`.
+- O endpoint administrativo permite atualmente `ATIVO -> INATIVO`.
 
-* Combinação dinâmica de filtros
-* Facilidade de evolução
-* Código desacoplado da camada de repositório
+## Integração com PS_Empresa
 
----
+O PS_Contrato usa OpenFeign para:
 
-## ❗ Tratamento de Erros
+- validar a empresa em `GET /internal/empresas/{id}/status`;
+- sincronizar o estado contratual em `PATCH /internal/contratos/status`.
 
-| Código HTTP | Situação                           |
-| ----------- | ---------------------------------- |
-| 400         | Dados inválidos / validação        |
-| 404         | Empresa ou contrato não encontrado |
-| 500         | Erro inesperado                    |
+A integração é fail-closed: falha de comunicação ou resposta inválida impede a operação local e retorna erro de integração.
 
-Formato padrão de erro:
+O client Feign usa Apache HttpClient 5 para suportar corretamente chamadas `PATCH`.
 
-```json
+## API
+
+### Criar contrato
+
+```http
+POST /contratos
+X-Internal-Key: <internal-key>
+Content-Type: application/json
+
 {
-  "error": "Mensagem descritiva do erro"
+  "empresaId": "<uuid>",
+  "onboardingId": "<uuid>"
 }
 ```
 
----
+### Confirmar pagamento
 
-## 🧪 Testes e Qualidade
+```http
+POST /contratos/{id}/pagamentos/confirmacao
+X-Internal-Key: <internal-key>
+Content-Type: application/json
 
-O microsserviço possui cobertura de testes focada em regras de negócio:
+{
+  "paymentId": "<uuid>",
+  "paidAt": "2026-08-24T20:00:00"
+}
+```
 
-* Testes unitários de Service
-* Testes de Controller (WebMvcTest)
-* Testes de Specification com banco H2
-* Testes do GlobalExceptionHandler
+Somente uma nova confirmação em contrato `AGUARDANDO_PAGAMENTO` pode promover o contrato para `ATIVO`.
 
-Todos os testes são executados com:
+### Alterar status administrativamente
 
-* `application-test.yml`
-* Banco em memória (H2)
+```http
+PATCH /contratos/{id}/status
+X-Internal-Key: <internal-key>
+Content-Type: application/json
 
----
+{
+  "statusId": 3
+}
+```
 
-## 🛠 Observações Técnicas
+A ativação administrativa direta é bloqueada. Nesta fase, o fluxo administrativo permitido é `ATIVO -> INATIVO`.
 
-* Transições de status centralizadas no Service
-* Ordenação controlada por enums para evitar campos inválidos
-* Specification preparada para expansão de filtros
-* Comunicação entre microsserviços isolada via Feign Client
+### Buscar contratos
 
----
+```http
+GET /contratos
+X-Internal-Key: <internal-key>
+```
 
-## ✅ Status do Microsserviço
+Suporta filtros, paginação e ordenação dinâmica.
 
-✔ Regras de negócio implementadas ✔ Testes automatizados cobrindo fluxos críticos ✔ API documentada via Swagger ✔ Pronto para integração com outros MS do MyPetAdmin
+## Segurança
 
----
+As rotas de negócio são protegidas por `X-Internal-Key` nesta fase service-to-service.
 
-**PS_Contrato – MyPetAdmin**
+A credencial é recebida exclusivamente por variável de ambiente e nunca deve ser versionada ou registrada em logs.
+
+Health e info ficam públicos para operação; métricas e demais endpoints seguem a política de segurança do serviço.
+
+## Variáveis de ambiente
+
+### Produção / Render
+
+Ative o profile de produção:
+
+```text
+SPRING_PROFILES_ACTIVE=prod
+```
+
+Configure:
+
+```text
+DB_URL=jdbc:postgresql://<host>:5432/<database>
+DB_USERNAME=<database-user>
+DB_PASSWORD=<database-password>
+INTERNAL_API_KEY=<shared-internal-secret>
+PS_EMPRESA_URL=<base-url-do-ps-empresa>
+```
+
+`PORT` é lido automaticamente pelo Spring através da variável fornecida pela plataforma. Não é necessário fixar uma porta no Render.
+
+`INTERNAL_API_KEY` deve possuir o mesmo valor configurado no PS_Empresa enquanto esta estratégia de autenticação interna estiver em uso.
+
+Em Render, prefira rede privada para comunicação entre serviços e para PostgreSQL quando os recursos estiverem no mesmo workspace e região.
+
+## Banco de dados
+
+- PostgreSQL
+- Flyway como fonte do schema
+- `ddl-auto=validate`
+- unicidade de contrato aberto por empresa
+- idempotência de onboarding e pagamento protegida também por índices únicos
+- sequência mensal de número de contrato persistida no banco
+
+Migrations atuais:
+
+```text
+V1__init_contrato_schema.sql
+V2__harden_existing_contrato_schema.sql
+V3__onboarding_payment_idempotency_and_contract_sequence.sql
+```
+
+## Observabilidade
+
+- logs estruturados por eventos de negócio;
+- correlation ID;
+- Actuator;
+- Prometheus;
+- ausência de PII e segredos nos logs.
+
+Política de nível:
+
+- `INFO`: mutações relevantes;
+- `DEBUG`: leituras, retries idempotentes e integrações bem-sucedidas;
+- `WARN`: rejeições de negócio, validação e segurança;
+- `ERROR`: falhas inesperadas e dependências indisponíveis.
+
+## Testes e CI
+
+O pipeline executa:
+
+- unit/component tests;
+- JaCoCo;
+- migrations em PostgreSQL real;
+- Docker build;
+- PS_Empresa + PS_Contrato efêmeros;
+- lifecycle cross-service com Playwright;
+- teste concorrente de geração de número contratual;
+- artefatos de evidência e logs dos dois serviços em caso de falha.
+
+O lifecycle integrado valida criação, onboarding idempotente, ativação por pagamento, retries, conflitos, inativação, não reativação e sincronização com Empresa.
+
+## Consistência distribuída
+
+A integração entre PS_Contrato e PS_Empresa ainda é síncrona e não usa transação distribuída, outbox ou broker. Essa decisão é intencional nesta fase para evitar overengineering.
+
+Quando o fluxo de billing/webhooks exigir maior garantia de entrega, outbox/eventos poderão ser avaliados.
+
+## Stack
+
+- Java 21
+- Spring Boot
+- Spring Data JPA
+- Spring Security
+- Spring Cloud OpenFeign
+- Apache HttpClient 5
+- PostgreSQL
+- Flyway
+- Swagger/OpenAPI
+- Actuator/Prometheus
+- Docker
+
+## Próximas integrações
+
+- Onboarding Orchestrator como chamador oficial da criação de contrato;
+- PS_Payment como origem oficial da confirmação de pagamento;
+- autenticação/tenant isolation integrada ao futuro PS_Login, PS_User e API Gateway.
