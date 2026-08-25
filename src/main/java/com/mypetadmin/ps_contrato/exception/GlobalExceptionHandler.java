@@ -148,7 +148,7 @@ public class GlobalExceptionHandler {
                                                 String message,
                                                 HttpServletRequest request) {
         if (status.is4xxClientError()) {
-            log.warn("request.rejected code={} method={} path={} message={}", code, request.getMethod(), request.getRequestURI(), message);
+            log.warn("request.rejected code={} method={} path={}", code, request.getMethod(), request.getRequestURI());
         }
         return ResponseEntity.status(status).body(
                 ErrorResponse.of(code, message, status.value(), request.getRequestURI())
