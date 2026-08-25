@@ -170,7 +170,20 @@ jobs:
           PS_EMPRESA_INTERNAL_KEY: mypetadmin-ci-internal-key
           PS_CONTRATO_INTERNAL_KEY: mypetadmin-ci-internal-key
           RUN_DESTRUCTIVE_INTEGRATION: 'true'
-        run: npm run contrato:integration
+        run: |
+          set -o pipefail
+          npm run contrato:integration 2>&1 | tee playwright-output.txt
+
+      - name: Upload cross-service test evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cross-service-test-evidence
+          path: |
+            qa-tests/playwright-output.txt
+            qa-tests/playwright-report
+            qa-tests/test-results
+          if-no-files-found: warn
 
       - name: Print service logs on failure
         if: failure()
