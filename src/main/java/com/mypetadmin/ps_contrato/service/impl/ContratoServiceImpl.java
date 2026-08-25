@@ -191,7 +191,7 @@ public class ContratoServiceImpl implements ContratoService {
     private void validarEmpresa(UUID empresaId) {
         try {
             EmpresaStatusResponseDTO empresa = empresaClient.buscarStatusEmpresa(empresaId);
-            if (empresa == null || empresa.id() == null || !empresaId.equals(empresa.id())) {
+            if (empresa == null || empresa.empresaId() == null || !empresaId.equals(empresa.empresaId())) {
                 throw new IntegracaoEmpresaException("Resposta inválida do PS_Empresa ao validar empresa " + empresaId, null);
             }
             log.debug("contract.company validated empresaId={} empresaStatus={}", empresaId, empresa.status());
@@ -258,27 +258,40 @@ public class ContratoServiceImpl implements ContratoService {
     public Page<ContratoResponseDTO> buscarContratos(UUID empresaId,
                                                      String numeroContrato,
                                                      String status,
-                                                     LocalDate dataInicio,
-                                                     LocalDate dataFim,
+                                                     LocalDate dataCriacaoInicio,
+                                                     LocalDate dataCriacaoFim,
                                                      Pageable pageable) {
-        if (dataInicio != null && dataFim != null && dataInicio.isAfter(dataFim)) {
-            throw new IllegalArgumentException("dataInicio não pode ser posterior a dataFim");
+        if (dataCriacaoInicio != null && dataCriacaoFim != null && dataCriacaoInicio.isAfter(dataCriacaoFim)) {
+            throw new IllegalArgumentException("dataCriacaoInicio não pode ser posterior a dataCriacaoFim");
         }
 
-        Specification<Contrato> spec = ContratoSpecification.filtrar(
-                empresaId,
-                numeroContrato,
-                status,
-                dataInicio,
-                dataFim
-        );
+        Specification<Contrato> spec = Specification.where(null);
+        if (empresaId != null) {
+            spec = spec.and(ContratoSpecification.empresaIdEquals(empresaId));
+        }
+        if (numeroContrato != null && !numeroContrato.isBlank()) {
+            spec = spec.and(ContratoSpecification.numeroContratoContains(numeroContrato));
+        }
+        if (status != null && !status.isBlank()) {
+            spec = spec.and(ContratoSpecification.statusEquals(status));
+        }
+        if (dataCriacaoInicio != null) {
+            spec = spec.and(ContratoSpecification.dataCriacaoGreaterThanOrEqual(dataCriacaoInicio));
+        }
+        if (dataCriacaoFim != null) {
+            spec = spec.and(ContratoSpecification.dataCriacaoLessThan(dataCriacaoFim.plusDays(1)));
+        }
 
-        Page<ContratoResponseDTO> result = contratoRepository.findAll(spec, pageable).map(mapper::toResponseDto);
         log.debug(
-                "contract.search success page={} size={} total={} filteredByEmpresa={} filteredByNumber={} filteredByStatus={} filteredByDateRange={}",
-                result.getNumber(), result.getSize(), result.getTotalElements(), empresaId != null,
-                numeroContrato != null, status != null, dataInicio != null || dataFim != null
+                "contract.search filters empresaIdSet={} numeroContratoSet={} statusSet={} dataInicioSet={} dataFimSet={} page={} size={}",
+                empresaId != null,
+                numeroContrato != null && !numeroContrato.isBlank(),
+                status != null && !status.isBlank(),
+                dataCriacaoInicio != null,
+                dataCriacaoFim != null,
+                pageable.getPageNumber(),
+                pageable.getPageSize()
         );
-        return result;
+        return contratoRepository.findAll(spec, pageable).map(mapper::toResponseDto);
     }
 }
