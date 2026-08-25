@@ -148,7 +148,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: LuisLipinski/ps_automacao_backend
-          ref: feature/ps-empresa-hardening-v1
+          ref: main
           path: qa-tests
 
       - name: Setup Node
