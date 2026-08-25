@@ -1,0 +1,116 @@
+name: Release Pipeline
+
+on:
+  push:
+    branches: [ master ]
+
+concurrency:
+  group: render-contrato-production
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Build application
+        run: ./mvnw -B clean package -DskipTests
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-build
+          path: target/*.jar
+
+  deploy-render:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate deploy secrets
+        env:
+          RENDER_DEPLOY_HOOK: ${{ secrets.RENDER_DEPLOY_HOOK }}
+          INTERNAL_API_KEY: ${{ secrets.INTERNAL_API_KEY }}
+        run: |
+          test -n "$RENDER_DEPLOY_HOOK" || (echo "RENDER_DEPLOY_HOOK não configurado" && exit 1)
+          test -n "$INTERNAL_API_KEY" || (echo "INTERNAL_API_KEY não configurado no GitHub" && exit 1)
+
+      - name: Trigger Render Deploy
+        env:
+          RENDER_DEPLOY_HOOK: ${{ secrets.RENDER_DEPLOY_HOOK }}
+        run: curl -fsSL -X POST "$RENDER_DEPLOY_HOOK"
+
+  wait-new-version:
+    needs: deploy-render
+    runs-on: ubuntu-latest
+    steps:
+      - name: Wait for new Render version
+        run: |
+          EXPECTED_COMMIT=${{ github.sha }}
+          MAX_ATTEMPTS=90
+          ATTEMPT=0
+
+          while true; do
+            RESPONSE=$(curl -fsS https://ps-contrato.onrender.com/version || true)
+            echo "Servidor: $RESPONSE | Esperado: $EXPECTED_COMMIT"
+
+            if [[ "$RESPONSE" == "$EXPECTED_COMMIT" ]]; then
+              echo "Nova versão publicada"
+              break
+            fi
+
+            ATTEMPT=$((ATTEMPT+1))
+            if [ "$ATTEMPT" -ge "$MAX_ATTEMPTS" ]; then
+              echo "Timeout aguardando nova versão do Render"
+              exit 1
+            fi
+            sleep 10
+          done
+
+  smoke:
+    needs: wait-new-version
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout automation
+        run: git clone --depth 1 --branch main https://github.com/LuisLipinski/ps_automacao_backend.git qa-tests
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: qa-tests/package-lock.json
+
+      - name: Install dependencies
+        working-directory: qa-tests
+        run: npm ci
+
+      - name: Run PS_Contrato production smoke
+        working-directory: qa-tests
+        env:
+          PS_CONTRATO_URL: https://ps-contrato.onrender.com
+          PS_CONTRATO_INTERNAL_KEY: ${{ secrets.INTERNAL_API_KEY }}
+        run: npm run contrato:smoke
+
+  release-production:
+    needs: smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Create release tag
+        run: |
+          git config --global user.name "github-actions"
+          git config --global user.email "actions@github.com"
+          VERSION=v1.${{ github.run_number }}
+          git tag "$VERSION"
+          git push origin "$VERSION"
