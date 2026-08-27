@@ -4,7 +4,7 @@ Microsserviço responsável pelo ciclo de vida dos contratos do My Pet Admin.
 
 ## Responsabilidade de domínio
 
-O PS_Contrato é o dono das regras contratuais. Ele não cria empresas nem usuários e não orquestra onboarding.
+O PS_Contrato é o dono das regras contratuais. Ele não cria empresas nem usuários, não envia convites e não orquestra onboarding.
 
 Fluxo alvo:
 
@@ -14,6 +14,7 @@ Onboarding Orchestrator
         +--> PS_Empresa
         +--> PS_User
         +--> PS_Contrato
+        `--> PS_Login (convite após criação da identidade)
 
 PS_Payment --pagamento confirmado--> PS_Contrato --status--> PS_Empresa
 ```
@@ -204,6 +205,6 @@ Quando o fluxo de billing/webhooks exigir maior garantia de entrega, outbox/even
 
 ## Próximas integrações
 
-- Onboarding Orchestrator como chamador oficial da criação de contrato;
+- Onboarding Orchestrator como chamador oficial da criação de contrato e coordenador do workflow completo;
 - PS_Payment como origem oficial da confirmação de pagamento;
-- autenticação/tenant isolation integrada ao futuro PS_Login, PS_User e API Gateway.
+- autenticação e tenant isolation integradas ao PS_Login atual, PS_User e futuro API Gateway.
