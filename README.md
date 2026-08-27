@@ -190,8 +190,8 @@ Quando o fluxo de billing/webhooks exigir maior garantia de entrega, outbox/even
 
 ## Stack
 
-- Java 21
-- Spring Boot
+- Java 25 LTS
+- Spring Boot 4.1.1
 - Spring Data JPA
 - Spring Security
 - Spring Cloud OpenFeign
