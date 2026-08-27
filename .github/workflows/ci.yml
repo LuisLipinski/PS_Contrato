@@ -18,7 +18,16 @@ jobs:
           cache: maven
       - run: chmod +x ./mvnw
       - name: Unit and component tests
-        run: ./mvnw -B clean verify
+        run: |
+          set -o pipefail
+          ./mvnw -B clean verify 2>&1 | tee maven-verify.log
+      - name: Upload Maven verify log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: maven-verify-log
+          path: maven-verify.log
+          if-no-files-found: warn
       - name: Upload JaCoCo report
         if: always()
         uses: actions/upload-artifact@v4
