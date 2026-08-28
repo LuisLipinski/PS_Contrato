@@ -19,7 +19,4 @@ public interface ContratoService {
     ContratoResponseDTO atualizarStatus(UUID id, @NotNull(message = "O Status não pode ser nulo") Long statusId);
 
     Page<ContratoResponseDTO> buscarContratos(UUID empresaId, String numeroContrato, String status, LocalDate dataInicio, LocalDate dataFim, Pageable pageable);
-
-    Page<ContratoResponseDTO> buscarContratosDoTenant(UUID actorEmpresaId, String numeroContrato, String status,
-                                                      LocalDate dataInicio, LocalDate dataFim, Pageable pageable);
 }
