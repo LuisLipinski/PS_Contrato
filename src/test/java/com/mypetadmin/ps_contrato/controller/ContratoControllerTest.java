@@ -12,6 +12,7 @@ import com.mypetadmin.ps_contrato.exception.StatusContratoNotFoundException;
 import com.mypetadmin.ps_contrato.security.InternalRequestFilter;
 import com.mypetadmin.ps_contrato.security.SecurityConfig;
 import com.mypetadmin.ps_contrato.service.ContratoService;
+import com.mypetadmin.ps_contrato.service.TenantContratoQueryService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
@@ -26,6 +27,7 @@ import java.time.LocalDateTime;
 import java.util.UUID;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -49,6 +51,9 @@ class ContratoControllerTest {
 
     @MockitoBean
     private ContratoService contratoService;
+
+    @MockitoBean
+    private TenantContratoQueryService tenantContratoQueryService;
 
     @Autowired
     private ObjectMapper objectMapper;
@@ -221,6 +226,31 @@ class ContratoControllerTest {
                         .content(objectMapper.writeValueAsString(requestDTO)))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("STATUS_CONTRATO_NOT_FOUND"));
+    }
+
+    @Test
+    void buscarContratosDoTenantExigeEmpresaDoAtor() throws Exception {
+        mockMvc.perform(get("/contratos/tenant")
+                        .header("X-Internal-Key", INTERNAL_KEY))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void buscarContratosDoTenantUsaHeaderConfiavel() throws Exception {
+        UUID actorEmpresaId = UUID.randomUUID();
+        when(tenantContratoQueryService.buscar(eq(actorEmpresaId), any(), any(), any(), any(), any()))
+                .thenReturn(Page.empty());
+
+        mockMvc.perform(get("/contratos/tenant")
+                        .header("X-Internal-Key", INTERNAL_KEY)
+                        .header("X-Actor-Empresa-Id", actorEmpresaId.toString())
+                        .param("status", "Ativo")
+                        .param("page", "0")
+                        .param("size", "10"))
+                .andExpect(status().isOk());
+
+        verify(tenantContratoQueryService, times(1))
+                .buscar(eq(actorEmpresaId), any(), eq("Ativo"), any(), any(), any());
     }
 
     @Test

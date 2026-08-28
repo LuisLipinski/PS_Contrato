@@ -8,6 +8,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.MissingRequestHeaderException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -116,6 +117,17 @@ public class GlobalExceptionHandler {
                 HttpStatus.BAD_REQUEST,
                 "MISSING_PARAMETER",
                 "Parâmetro ausente: " + ex.getParameterName(),
+                request
+        );
+    }
+
+    @ExceptionHandler(MissingRequestHeaderException.class)
+    public ResponseEntity<ErrorResponse> handleMissingHeader(MissingRequestHeaderException ex,
+                                                              HttpServletRequest request) {
+        return build(
+                HttpStatus.BAD_REQUEST,
+                "MISSING_HEADER",
+                "Header ausente: " + ex.getHeaderName(),
                 request
         );
     }
