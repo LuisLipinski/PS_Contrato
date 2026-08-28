@@ -7,6 +7,7 @@ import com.mypetadmin.ps_contrato.dto.PagamentoConfirmadoRequestDTO;
 import com.mypetadmin.ps_contrato.enums.DirectionField;
 import com.mypetadmin.ps_contrato.enums.SortField;
 import com.mypetadmin.ps_contrato.service.ContratoService;
+import com.mypetadmin.ps_contrato.service.TenantContratoQueryService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
@@ -26,6 +27,7 @@ import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -41,7 +43,10 @@ import java.util.UUID;
 @Validated
 public class ContratoController {
 
+    private static final String ACTOR_EMPRESA_ID_HEADER = "X-Actor-Empresa-Id";
+
     private final ContratoService contratoService;
+    private final TenantContratoQueryService tenantContratoQueryService;
 
     @PostMapping
     @Operation(summary = "Cria contrato após conclusão do onboarding")
@@ -87,8 +92,32 @@ public class ContratoController {
         return ResponseEntity.ok(contratoService.atualizarStatus(id, request.getStatusId()));
     }
 
+    @GetMapping("/tenant")
+    @Operation(summary = "Consulta contratos restritos ao tenant autenticado na borda")
+    public ResponseEntity<Page<ContratoResponseDTO>> buscarContratosDoTenant(
+            @RequestHeader(ACTOR_EMPRESA_ID_HEADER) UUID actorEmpresaId,
+            @RequestParam(required = false) String numeroContrato,
+            @RequestParam(required = false) String status,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate dataInicio,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate dataFim,
+            @RequestParam(defaultValue = "DATA_CRIACAO") SortField sortField,
+            @RequestParam(defaultValue = "DESC") DirectionField direction,
+            @RequestParam(defaultValue = "0") @Min(0) int page,
+            @RequestParam(defaultValue = "10") @Min(1) @Max(100) int size) {
+
+        Pageable pageable = PageRequest.of(page, size, Sort.by(direction.getDirection(), sortField.getField()));
+        return ResponseEntity.ok(tenantContratoQueryService.buscar(
+                actorEmpresaId,
+                numeroContrato,
+                status,
+                dataInicio,
+                dataFim,
+                pageable
+        ));
+    }
+
     @GetMapping
-    @Operation(summary = "Busca contratos com filtros, ordenação e paginação")
+    @Operation(summary = "Busca administrativa de contratos com filtros, ordenação e paginação")
     public ResponseEntity<Page<ContratoResponseDTO>> buscarContratos(
             @RequestParam(required = false) UUID empresaId,
             @RequestParam(required = false) String numeroContrato,
