@@ -121,7 +121,7 @@ jobs:
 
       - name: Start PS_Empresa
         env:
-          INTERNAL_API_KEY: mypetadmin-ci-internal-key
+          INTERNAL_API_KEY: mypetadmin-ci-internal-key-32bytes-minimum
           JWT_SECRET_KEY: mypetadmin-ci-jwt-secret-key-32chars
         run: nohup java -jar ps-empresa/target/*.jar --spring.profiles.active=ci > ps-empresa.log 2>&1 &
 
@@ -130,7 +130,7 @@ jobs:
           DB_URL: jdbc:postgresql://localhost:5432/pscontratodb
           DB_USERNAME: postgres
           DB_PASSWORD: postgres
-          INTERNAL_API_KEY: mypetadmin-ci-internal-key
+          INTERNAL_API_KEY: mypetadmin-ci-internal-key-32bytes-minimum
           PS_EMPRESA_URL: http://localhost:8081
         run: nohup java -jar target/*.jar > ps-contrato.log 2>&1 &
 
@@ -176,8 +176,8 @@ jobs:
         env:
           PS_EMPRESA_URL: http://localhost:8081
           PS_CONTRATO_URL: http://localhost:8082
-          PS_EMPRESA_INTERNAL_KEY: mypetadmin-ci-internal-key
-          PS_CONTRATO_INTERNAL_KEY: mypetadmin-ci-internal-key
+          PS_EMPRESA_INTERNAL_KEY: mypetadmin-ci-internal-key-32bytes-minimum
+          PS_CONTRATO_INTERNAL_KEY: mypetadmin-ci-internal-key-32bytes-minimum
           RUN_DESTRUCTIVE_INTEGRATION: 'true'
         run: |
           set -o pipefail
